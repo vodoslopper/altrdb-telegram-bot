@@ -1,0 +1,56 @@
+# altrdb-telegram-bot — single-node deployment.
+#
+#   cp .env.example .env   # fill in TELEGRAM_BOT_TOKEN
+#   chmod 600 .env
+#   docker compose up -d --build
+#
+# The health port is published on loopback only. Reach it with
+# `ssh -L 8080:127.0.0.1:8080 host` or put a reverse proxy in front.
+
+name: altrdb-telegram-bot
+
+services:
+  bot:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+    image: altrdb-telegram-bot:${VERSION:-dev}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # The database must live on the named volume, not in the image layer.
+      DATABASE_PATH: /var/lib/altrdb-telegram-bot/bot.db
+      HTTP_LISTEN_ADDR: 0.0.0.0:8080
+    volumes:
+      - bot-data:/var/lib/altrdb-telegram-bot
+    ports:
+      - "127.0.0.1:8080:8080"
+    # SQLite keeps -wal and -shm files open; a hard kill can leave them behind,
+    # which WAL recovers from on the next open. SIGTERM lets the process finish
+    # the in-flight delivery and checkpoint cleanly.
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/altrdb-telegram-bot", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    # Read-only root: only the state directory is writable.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot-data:

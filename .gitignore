@@ -1,0 +1,20 @@
+# Build artefacts
+/bin/
+/dist/
+*.test
+*.out
+coverage.out
+coverage.txt
+coverage.html
+
+# Local runtime state and secrets
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+
+# Editor noise
+.idea/
+.vscode/
+*.swp

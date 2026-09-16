@@ -1,0 +1,96 @@
+# altrdb-telegram-bot.service
+#
+# Install:
+#   sudo install -D -m 0755 bin/altrdb-telegram-bot /usr/local/bin/altrdb-telegram-bot
+#   sudo install -D -m 0644 deploy/systemd/altrdb-telegram-bot.service \
+#                       /etc/systemd/system/altrdb-telegram-bot.service
+#   sudo install -D -m 0600 /path/to/your.env /etc/altrdb-telegram-bot/bot.env
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now altrdb-telegram-bot.service
+#
+# The unit uses DynamicUser=yes, so systemd allocates a transient uid and owns
+# StateDirectory= for it. There is no system user to create and no uid to
+# reserve; /var/lib/altrdb-telegram-bot is created, owned and removed by
+# systemd. If your distribution is too old for DynamicUser, see the commented
+# "dedicated system user" variant at the bottom of this file.
+
+[Unit]
+Description=ALT Linux Girar build-task notifications for Telegram
+Documentation=https://rdb.altlinux.org/api/docs
+Documentation=file:///usr/local/share/doc/altrdb-telegram-bot/README.md
+
+# Outbound HTTPS to rdb.altlinux.org and api.telegram.org is all this needs.
+After=network-online.target
+Wants=network-online.target
+
+# A wrong token or a contended database fails immediately and forever; stop
+# hammering systemd with restarts after five tries in five minutes.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Configuration is read once at start-up; a config change is a restart.
+ExecStart=/usr/local/bin/altrdb-telegram-bot
+
+# --- identity and state -----------------------------------------------------
+DynamicUser=yes
+StateDirectory=altrdb-telegram-bot
+StateDirectoryMode=0700
+Environment=DATABASE_PATH=/var/lib/altrdb-telegram-bot/bot.db
+
+# Secrets live here, mode 0600, and are never on the command line.
+EnvironmentFile=/etc/altrdb-telegram-bot/bot.env
+
+# --- restart policy ---------------------------------------------------------
+Restart=on-failure
+RestartSec=5s
+
+# --- sandboxing -------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+UMask=0077
+
+# Nothing to write except the state directory and a scratch /tmp.
+ReadWritePaths=/var/lib/altrdb-telegram-bot
+
+# No public listener is expected: HTTP_LISTEN_ADDR defaults to 127.0.0.1:8080.
+# Outbound HTTPS to rdb.altlinux.org and api.telegram.org is unaffected by the
+# sandboxing above, which is what the poller and the delivery worker need.
+
+[Install]
+WantedBy=multi-user.target
+
+# ---------------------------------------------------------------------------
+# Variant for systems without DynamicUser (create the user yourself):
+#
+#   sudo groupadd --system altrdb-telegram-bot
+#   sudo useradd --system --gid altrdb-telegram-bot --home-dir /var/lib/altrdb-telegram-bot \
+#                --shell /usr/sbin/nologin altrdb-telegram-bot
+#   sudo install -d -o altrdb-telegram-bot -g altrdb-telegram-bot -m 0700 \
+#                /var/lib/altrdb-telegram-bot
+#
+# then replace the identity block above with:
+#
+#   User=altrdb-telegram-bot
+#   Group=altrdb-telegram-bot
+#   # StateDirectory= still works and will chown the directory to this user.
+# ---------------------------------------------------------------------------
