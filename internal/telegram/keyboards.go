@@ -21,7 +21,7 @@ import (
 // hash. List positions carry a hash of the list they came from, so a stale
 // button is detected instead of silently acting on the wrong row.
 //
-//	st:<stateID>:<page>          toggle a task state
+//	st:<stateID>:<page>          toggle a task state (page is 0: one screen)
 //	br:<branchID>:<page>         toggle a branch
 //	sa:<view>:<page>             select all in a view
 //	ca:<view>:<page>             clear all in a view
@@ -49,6 +49,19 @@ const (
 const (
 	checkedBox = "☑"
 	emptyBox   = "☐"
+)
+
+// The states screen is laid out two buttons to a row and fits on one page.
+// State names are short and the lifecycle is bounded, so paging through them
+// hid exactly the states a user wants to see side by side. Telegram caps an
+// inline keyboard at 100 buttons, four of which are reserved here for
+// Select all / Clear all / Refresh / Done, so 96 toggles — 48 rows of two — is
+// the most one screen can carry. Reaching that would take dozens of states the
+// feed invented after this binary was built; if it ever happens the panel
+// paginates rather than having the whole edit rejected.
+const (
+	statesColumns = 2
+	statesPerPage = 96
 )
 
 // panel is one editable screen: its text and its keyboard.
@@ -94,6 +107,21 @@ func pageCount(count, pageSize int) int {
 	return n
 }
 
+// buttonRows lays buttons out cols to a keyboard row. Telegram sizes the
+// buttons of a row to its width, so two short labels sit side by side where
+// one would leave half the row empty.
+func buttonRows(buttons []models.InlineKeyboardButton, cols int) [][]models.InlineKeyboardButton {
+	if cols < 1 {
+		cols = 1
+	}
+	rows := make([][]models.InlineKeyboardButton, 0, (len(buttons)+cols-1)/cols)
+	for start := 0; start < len(buttons); start += cols {
+		end := min(start+cols, len(buttons))
+		rows = append(rows, buttons[start:end:end])
+	}
+	return rows
+}
+
 // navRow builds « Prev | 2/3 | Next » followed by the Refresh/Done row.
 func navRow(view string, page, pages int) [][]models.InlineKeyboardButton {
 	var rows [][]models.InlineKeyboardButton
@@ -125,6 +153,10 @@ func navRow(view string, page, pages int) [][]models.InlineKeyboardButton {
 // statesPanel renders the task state checklist. States come from the catalogue
 // table, which the poller keeps up to date with whatever the feed reports, so a
 // state ALT introduces after this binary was built still appears here.
+//
+// Unlike the other checklists this one is a single screen of two-column rows:
+// the state list is short enough to show whole, and seeing it whole is the
+// point. bt.pageSize deliberately does not apply here.
 func (bt *Bot) statesPanel(ctx context.Context, chatID int64, page int) (*panel, error) {
 	all, err := bt.store.ListStates(ctx)
 	if err != nil {
@@ -136,10 +168,10 @@ func (bt *Bot) statesPanel(ctx context.Context, chatID int64, page int) (*panel,
 	}
 	sel := toSet(selected)
 
-	pages := pageCount(len(all), bt.pageSize)
+	pages := pageCount(len(all), statesPerPage)
 	page = clampPage(page, pages)
-	start := page * bt.pageSize
-	end := min(start+bt.pageSize, len(all))
+	start := page * statesPerPage
+	end := min(start+statesPerPage, len(all))
 
 	p := &panel{}
 	var b strings.Builder
@@ -147,6 +179,7 @@ func (bt *Bot) statesPanel(ctx context.Context, chatID int64, page int) (*panel,
 	if len(all) == 0 {
 		b.WriteString("\nNo states known yet. They appear after the first successful poll of the task feed.")
 	}
+	toggles := make([]models.InlineKeyboardButton, 0, end-start)
 	for _, st := range all[start:end] {
 		box := emptyBox
 		if _, ok := sel[st.Name]; ok {
@@ -157,9 +190,10 @@ func (bt *Bot) statesPanel(ctx context.Context, chatID int64, page int) (*panel,
 			// Learned from a live response rather than seeded.
 			label += " ⁇"
 		}
-		p.markup.InlineKeyboard = append(p.markup.InlineKeyboard,
-			[]models.InlineKeyboardButton{{Text: label, CallbackData: fmt.Sprintf("st:%d:%d", st.ID, page)}})
+		toggles = append(toggles, models.InlineKeyboardButton{
+			Text: label, CallbackData: fmt.Sprintf("st:%d:%d", st.ID, page)})
 	}
+	p.markup.InlineKeyboard = append(p.markup.InlineKeyboard, buttonRows(toggles, statesColumns)...)
 
 	p.markup.InlineKeyboard = append(p.markup.InlineKeyboard,
 		[]models.InlineKeyboardButton{

@@ -36,7 +36,8 @@ func TestToggleStateEditsTheSameMessage(t *testing.T) {
 	h.send("/start")
 	h.api.reset()
 
-	// With the harness page size of four, DONE is on the third page.
+	// Page 2 is a number left over from a panel sent before the chooser became
+	// a single page; it is clamped, and the toggle still lands on DONE.
 	id := h.stateID("DONE")
 	h.press(fmt.Sprintf("st:%d:2", id))
 
@@ -94,47 +95,105 @@ func TestToggleUnknownStateIsRefusedGracefully(t *testing.T) {
 	}
 }
 
-func TestStatePagination(t *testing.T) {
-	h := newHarness(t, nil) // PageSize 4, nine seeded states
+// TestStatesPanelIsOneTwoColumnPage pins the layout of the state chooser: every
+// known state on a single screen, two buttons to a row. Nine seeded states over
+// a harness PageSize of four would be three pages of one column if the states
+// screen paginated like the others.
+func TestStatesPanelIsOneTwoColumnPage(t *testing.T) {
+	h := newHarness(t, nil)
 	h.send("/states")
 
-	c, _ := h.api.lastByMethod("sendMessage")
-	if !contains(c.Buttons(), "1/3") {
-		t.Fatalf("page indicator missing from %v", c.Buttons())
+	c, ok := h.api.lastByMethod("sendMessage")
+	if !ok {
+		t.Fatal("no states panel was sent")
 	}
-	h.api.reset()
-
-	// The page indicator itself is a no-op button that must still be answered.
-	h.press("pg:st:0")
-	if len(h.api.byMethod("editMessageText")) != 1 {
-		t.Error("a page button must re-render the panel")
+	all, err := h.store.StateNames(h.ctx)
+	if err != nil {
+		t.Fatalf("StateNames: %v", err)
 	}
-
-	h.api.reset()
-	h.press("pg:st:2")
-	last, _ := h.api.lastByMethod("editMessageText")
-	if !contains(last.Buttons(), "3/3") {
-		t.Errorf("page three indicator missing: %v", last.Buttons())
-	}
-	if contains(last.Buttons(), "Next »") {
-		t.Error("the last page must not offer Next")
-	}
-	if !contains(last.Buttons(), "« Prev") {
-		t.Error("the last page must offer Prev")
+	if len(all) < 3 {
+		t.Fatalf("the seeded catalogue has %d states, too few to prove the layout", len(all))
 	}
 
-	// An out-of-range page is clamped rather than rendering an empty screen.
-	h.api.reset()
-	h.press("pg:st:99")
-	last, _ = h.api.lastByMethod("editMessageText")
-	if !contains(last.Buttons(), "3/3") {
-		t.Errorf("an out-of-range page = %v, want it clamped to the last one", last.Buttons())
+	offered := map[string]bool{}
+	rows, twoWide := 0, 0
+	for _, row := range c.keyboard().InlineKeyboard {
+		toggles := 0
+		for _, b := range row {
+			if !strings.HasPrefix(b.CallbackData, "st:") {
+				continue
+			}
+			toggles++
+			offered[stateLabel(b.Text)] = true
+			// The screen is one page, so every toggle must say so. A stale
+			// page number in an old button is clamped, never honoured.
+			if !strings.HasSuffix(b.CallbackData, ":0") {
+				t.Errorf("callback data %q is not on page 0", b.CallbackData)
+			}
+		}
+		if toggles == 0 {
+			continue
+		}
+		rows++
+		if toggles > statesColumns {
+			t.Errorf("a row holds %d state toggles, want at most %d", toggles, statesColumns)
+		}
+		if toggles == statesColumns {
+			twoWide++
+		}
 	}
-	h.press("pg:st:-5")
-	last, _ = h.api.lastByMethod("editMessageText")
-	if !contains(last.Buttons(), "1/3") {
-		t.Errorf("a negative page = %v, want it clamped to the first one", last.Buttons())
+
+	if len(offered) != len(all) {
+		t.Errorf("the panel offers %d of %d states: %v", len(offered), len(all), offered)
 	}
+	if want := (len(all) + statesColumns - 1) / statesColumns; rows != want {
+		t.Errorf("%d toggle rows for %d states, want %d", rows, len(all), want)
+	}
+	if len(all)%statesColumns == 0 && twoWide != rows {
+		t.Errorf("only %d of %d rows are two columns wide", twoWide, rows)
+	}
+	for _, b := range c.Buttons() {
+		if b == "« Prev" || b == "Next »" || strings.Contains(b, "/") {
+			t.Errorf("the states screen is a single page but offers %q", b)
+		}
+	}
+	if !contains(c.Buttons(), "✔ Select all") || !contains(c.Buttons(), "✖ Clear all") {
+		t.Errorf("the bulk controls are missing: %v", c.Buttons())
+	}
+}
+
+// TestStatePageCallbacksClampToOnePage keeps old buttons working: a panel sent
+// before the chooser became a single page still carries pg:st:<n> and st:<id>:<n>,
+// and pressing one must re-render the current screen rather than an empty one.
+func TestStatePageCallbacksClampToOnePage(t *testing.T) {
+	h := newHarness(t, nil)
+	h.send("/states")
+	all, _ := h.store.StateNames(h.ctx)
+
+	for _, data := range []string{"pg:st:0", "pg:st:1", "pg:st:99", "pg:st:-5"} {
+		h.api.reset()
+		h.press(data)
+		last, ok := h.api.lastByMethod("editMessageText")
+		if !ok {
+			t.Fatalf("%s did not re-render the panel", data)
+		}
+		if _, ok := h.api.lastByMethod("answerCallbackQuery"); !ok {
+			t.Errorf("%s was never answered", data)
+		}
+		if !contains(last.Buttons(), emptyBox+" "+all[0]) {
+			t.Errorf("%s lost the state list: %v", data, last.Buttons())
+		}
+		if contains(last.Buttons(), "« Prev") || contains(last.Buttons(), "Next »") {
+			t.Errorf("%s produced a paged panel: %v", data, last.Buttons())
+		}
+	}
+}
+
+// stateLabel strips the checkbox glyph and the ⁇ learned marker from a toggle.
+func stateLabel(text string) string {
+	text = strings.TrimPrefix(text, checkedBox+" ")
+	text = strings.TrimPrefix(text, emptyBox+" ")
+	return strings.TrimSpace(strings.TrimSuffix(text, "⁇"))
 }
 
 func TestSelectAllAndClearAllStates(t *testing.T) {
@@ -599,7 +658,7 @@ func TestUnchangedPanelEditIsNotAnError(t *testing.T) {
 	// Telegram answers an edit that changes nothing with a 400; the library
 	// turns that into ErrorBadRequest, which must not be treated as a failure.
 	h.api.failWith("editMessageText", 400, 1, "Bad Request: message is not modified")
-	// With the harness page size of four, DONE is on the third page.
+	// The page number is stale by design: the chooser is one page now.
 	id := h.stateID("DONE")
 	h.press(fmt.Sprintf("st:%d:2", id))
 

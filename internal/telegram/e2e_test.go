@@ -300,17 +300,17 @@ func TestEndToEndSubscriptionToSingleDelivery(t *testing.T) {
 		t.Fatalf("maintainers = %v", nicks)
 	}
 
-	// The states panel must offer the seeded lifecycle states as checkboxes.
+	// The states panel must offer the seeded lifecycle states as checkboxes,
+	// all of them on one screen: FAILED and DONE are two buttons in the same
+	// two-column list.
 	api.reset()
 	sys.say("/states")
-	// FAILED is on the first page, DONE on the second: ticking both also
-	// exercises pagination.
 	failedData := findCheckbox(t, api, "FAILED")
-	api.reset()
-	sys.press(failedData)
-	sys.press("pg:st:1")
 	doneData := findCheckbox(t, api, "DONE")
 	api.reset()
+	sys.press(failedData)
+	// A page button from an older, paginated panel must still work.
+	sys.press("pg:st:1")
 	sys.press(doneData)
 
 	states, err := sys.store.ListChatStates(sys.ctx, testChatID)

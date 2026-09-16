@@ -62,7 +62,8 @@ type Options struct {
 	// SyncHandlers makes ProcessUpdate run handlers inline. Tests need this;
 	// production wants the library's async behaviour.
 	SyncHandlers bool
-	// PageSize is how many checkbox rows one keyboard page holds.
+	// PageSize is how many checkbox rows one keyboard page holds. The states
+	// screen ignores it: it is always one two-column page (see statesPerPage).
 	PageSize int
 }
 

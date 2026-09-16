@@ -289,7 +289,7 @@ outbox rows.
 | `/settings` | Current maintainers, states, branches, status and mode, with one button per screen |
 | `/maintainers` | Checkbox list of followed nicknames; `➕ Add` starts a prompt, each `☑ name` removes it |
 | `/maintainers grenka rider` | Adds nicknames inline, without the prompt |
-| `/states` | Checkbox list of task states (seeded lifecycle states, then anything learned from the feed, marked `⁇`) |
+| `/states` | Checkbox list of task states, two to a row and all on one screen (seeded lifecycle states, then anything learned from the feed, marked `⁇`) |
 | `/states DONE FAILED` | Replaces the state selection |
 | `/branches` | Checkbox list of branches loaded from RDB and cached |
 | `/branches sisyphus p11` | Replaces the branch selection |
@@ -304,10 +304,15 @@ Keyboard conventions:
 
 - Every toggle button starts with `☑` (on) or `☐` (off) and edits **the same
   message** — Telegram has no native checkboxes.
-- `✔ Select all`, `✖ Clear all`, `« Prev | 2/3 | Next »`, `⟳ Refresh` and
-  `✅ Done` are always present. `⟳ Refresh` on the branch screen forces a new
-  catalogue fetch; `✅ Done` returns to the settings hub, and from the hub it
-  drops the keyboard.
+- `✔ Select all`, `✖ Clear all`, `⟳ Refresh` and `✅ Done` are always present.
+  `⟳ Refresh` on the branch screen forces a new catalogue fetch; `✅ Done`
+  returns to the settings hub, and from the hub it drops the keyboard.
+- The maintainers and branches lists paginate (`« Prev | 2/3 | Next »`, eight
+  rows per page by default). The states list does not: it is short enough to
+  show whole, so it is rendered two buttons to a row on a single screen with no
+  navigation row, and its callback page number is always `0`. Only if the feed
+  ever reported more than 96 states would it fall back to paging, since Telegram
+  refuses an inline keyboard of more than 100 buttons.
 - Callback data is at most 64 bytes and carries database surrogate ids, page
   numbers and short list hashes — never a raw nickname, state or branch name.
   A button whose list hash no longer matches is answered with
