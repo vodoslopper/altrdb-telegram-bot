@@ -13,6 +13,8 @@ import (
 	"altrdb-telegram-bot/internal/model"
 )
 
+const defaultRecentTaskMaxAge = 30 * 24 * time.Hour
+
 // ApplyResult summarises one poll's effect on the database.
 type ApplyResult struct {
 	// Tasks is how many records the poll carried.
@@ -363,11 +365,15 @@ func (s *Store) PruneSnapshots(ctx context.Context, cutoff time.Time) (int, erro
 	return int(n), nil
 }
 
-// RecentMatching returns the currently matching tasks for /recent. It reads the
-// local snapshot table, so it never touches RDB and never moves a watermark.
-func (s *Store) RecentMatching(ctx context.Context, chatID int64, limit int) ([]model.TaskEvent, error) {
+// RecentMatching returns the currently matching tasks changed within maxAge
+// for /recent. It reads the local snapshot table, so it never touches RDB and
+// never moves a watermark.
+func (s *Store) RecentMatching(ctx context.Context, chatID int64, limit int, maxAge time.Duration) ([]model.TaskEvent, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+	if maxAge <= 0 {
+		maxAge = defaultRecentTaskMaxAge
 	}
 	sub, err := s.LoadSubscription(ctx, chatID)
 	if err != nil {
@@ -383,10 +389,11 @@ func (s *Store) RecentMatching(ctx context.Context, chatID int64, limit int) ([]
 	      WHERE task_owner IN (` + placeholders(len(sub.Maintainers)) + `)
 	        AND task_state IN (` + placeholders(len(sub.States)) + `)
 	        AND task_repo IN (` + placeholders(len(sub.Branches)) + `)
+	        AND task_changed >= ?
 	      ORDER BY task_changed DESC
 	      LIMIT ?`
 
-	args := make([]any, 0, len(sub.Maintainers)+len(sub.States)+len(sub.Branches)+1)
+	args := make([]any, 0, len(sub.Maintainers)+len(sub.States)+len(sub.Branches)+2)
 	for _, m := range sub.Maintainers {
 		args = append(args, m)
 	}
@@ -396,6 +403,7 @@ func (s *Store) RecentMatching(ctx context.Context, chatID int64, limit int) ([]
 	for _, b := range sub.Branches {
 		args = append(args, b.Branch)
 	}
+	args = append(args, model.FormatTime(s.clock.Now().Add(-maxAge)))
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, q, args...)

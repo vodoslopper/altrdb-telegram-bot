@@ -323,7 +323,7 @@ func (bt *Bot) cmdRecent(ctx context.Context, a access, args string) error {
 	if err != nil {
 		return err
 	}
-	events, err := bt.store.RecentMatching(ctx, a.chatID, limit)
+	events, err := bt.store.RecentMatching(ctx, a.chatID, limit, bt.cfg.RecentTaskMaxAge)
 	if err != nil {
 		return err
 	}

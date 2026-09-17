@@ -29,26 +29,27 @@ const (
 
 // Defaults. These are the values documented in README.md and .env.example.
 const (
-	DefaultRDBBaseURL      = "https://rdb.altlinux.org/api"
-	DefaultDatabasePath    = "/var/lib/altrdb-telegram-bot/bot.db"
-	DefaultPollInterval    = 60 * time.Second
-	MinPollInterval        = 15 * time.Second
-	DefaultTasksLimit      = 200
-	DefaultHTTPListenAddr  = "127.0.0.1:8080"
-	DefaultLogLevel        = "info"
-	DefaultNotifyInterval  = 5 * time.Second
-	DefaultNotifyMaxTries  = 8
-	DefaultSendSpacing     = 50 * time.Millisecond
-	DefaultHTTPTimeout     = 30 * time.Second
-	DefaultConnectTimeout  = 10 * time.Second
-	DefaultTLSTimeout      = 10 * time.Second
-	DefaultBranchRefresh   = 30 * time.Minute
-	DefaultMaintRefresh    = 6 * time.Hour
-	DefaultOverlapWindow   = 24 * time.Hour
-	DefaultSnapshotKeepFor = 30 * 24 * time.Hour
-	DefaultLeaseTTL        = 90 * time.Second
-	DefaultLeaseHeartbeat  = 30 * time.Second
-	DefaultMaxConcurrent   = 3
+	DefaultRDBBaseURL       = "https://rdb.altlinux.org/api"
+	DefaultDatabasePath     = "/var/lib/altrdb-telegram-bot/bot.db"
+	DefaultPollInterval     = 60 * time.Second
+	MinPollInterval         = 15 * time.Second
+	DefaultTasksLimit       = 200
+	DefaultHTTPListenAddr   = "127.0.0.1:8080"
+	DefaultLogLevel         = "info"
+	DefaultNotifyInterval   = 5 * time.Second
+	DefaultNotifyMaxTries   = 8
+	DefaultSendSpacing      = 50 * time.Millisecond
+	DefaultHTTPTimeout      = 30 * time.Second
+	DefaultConnectTimeout   = 10 * time.Second
+	DefaultTLSTimeout       = 10 * time.Second
+	DefaultBranchRefresh    = 30 * time.Minute
+	DefaultMaintRefresh     = 6 * time.Hour
+	DefaultOverlapWindow    = 24 * time.Hour
+	DefaultSnapshotKeepFor  = 30 * 24 * time.Hour
+	DefaultRecentTaskMaxAge = 30 * 24 * time.Hour
+	DefaultLeaseTTL         = 90 * time.Second
+	DefaultLeaseHeartbeat   = 30 * time.Second
+	DefaultMaxConcurrent    = 3
 	// MaxTelegramMessageLen is Telegram's hard limit on message text.
 	MaxTelegramMessageLen = 4096
 )
@@ -79,10 +80,11 @@ type Config struct {
 	HTTPTLSTimeout     time.Duration
 
 	// Storage
-	DatabasePath    string
-	SnapshotKeepFor time.Duration
-	LeaseTTL        time.Duration
-	LeaseHeartbeat  time.Duration
+	DatabasePath     string
+	SnapshotKeepFor  time.Duration
+	RecentTaskMaxAge time.Duration
+	LeaseTTL         time.Duration
+	LeaseHeartbeat   time.Duration
 
 	// Delivery
 	NotifyInterval    time.Duration
@@ -126,6 +128,7 @@ func Parse(get Lookup) (*Config, error) {
 		HTTPTLSTimeout:         DefaultTLSTimeout,
 		DatabasePath:           DefaultDatabasePath,
 		SnapshotKeepFor:        DefaultSnapshotKeepFor,
+		RecentTaskMaxAge:       DefaultRecentTaskMaxAge,
 		LeaseTTL:               DefaultLeaseTTL,
 		LeaseHeartbeat:         DefaultLeaseHeartbeat,
 		NotifyInterval:         DefaultNotifyInterval,
@@ -251,6 +254,11 @@ func Parse(get Lookup) (*Config, error) {
 		errs = append(errs, err)
 	} else {
 		cfg.SnapshotKeepFor = d
+	}
+	if d, err := parseDuration(get, "RECENT_TASK_MAX_AGE", cfg.RecentTaskMaxAge); err != nil {
+		errs = append(errs, err)
+	} else {
+		cfg.RecentTaskMaxAge = d
 	}
 	if d, err := parseDuration(get, "LEASE_TTL", cfg.LeaseTTL); err != nil {
 		errs = append(errs, err)

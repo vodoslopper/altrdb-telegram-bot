@@ -136,7 +136,7 @@ func renderRecent(events []model.TaskEvent, sub *model.Subscription, limit int) 
 			"Configure them first with /maintainers, /states and /branches."
 	}
 	if len(events) == 0 {
-		return "No task in the tracked feed currently matches your subscription.\n" +
+		return "No task changed within the configured recent window matches your subscription.\n" +
 			"The bot only keeps the most recent tasks per branch, so an idle maintainer shows nothing here."
 	}
 

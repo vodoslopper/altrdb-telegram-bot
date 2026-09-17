@@ -34,6 +34,7 @@ func TestParseDefaults(t *testing.T) {
 		{"poll interval", cfg.PollInterval, DefaultPollInterval},
 		{"listen addr", cfg.HTTPListenAddr, DefaultHTTPListenAddr},
 		{"database", cfg.DatabasePath, DefaultDatabasePath},
+		{"recent task max age", cfg.RecentTaskMaxAge, DefaultRecentTaskMaxAge},
 		{"log level", cfg.LogLevel, "info"},
 		{"log format", cfg.LogFormat, "text"},
 		{"overlap window", cfg.OverlapWindow, DefaultOverlapWindow},
@@ -74,6 +75,7 @@ func TestParseOverrides(t *testing.T) {
 		"NOTIFY_INTERVAL":             "2s",
 		"NOTIFY_MAX_ATTEMPTS":         "3",
 		"SNAPSHOT_RETENTION":          "72h",
+		"RECENT_TASK_MAX_AGE":         "48h",
 		"RDB_USER_AGENT":              "test-agent/1.0",
 	}))
 	if err != nil {
@@ -109,6 +111,9 @@ func TestParseOverrides(t *testing.T) {
 	}
 	if cfg.RDBUserAgent != "test-agent/1.0" {
 		t.Errorf("user agent = %q", cfg.RDBUserAgent)
+	}
+	if cfg.RecentTaskMaxAge != 48*time.Hour {
+		t.Errorf("recent task max age = %s", cfg.RecentTaskMaxAge)
 	}
 }
 

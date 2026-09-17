@@ -538,17 +538,18 @@ func TestRecentMatching(t *testing.T) {
 		task(3, "sisyphus", "grenka", "FAILED", epoch.Add(-2*time.Hour)),
 		task(4, "sisyphus", "rider", "DONE", epoch.Add(-2*time.Hour)),
 		task(5, "p11", "grenka", "DONE", epoch.Add(-2*time.Hour)),
+		task(6, "sisyphus", "grenka", "DONE", epoch.Add(-31*24*time.Hour)),
 	}
 	if _, err := st.ApplyTasks(ctx, feed, true, terminal); err != nil {
 		t.Fatalf("ApplyTasks: %v", err)
 	}
 
-	got, err := st.RecentMatching(ctx, 700, 10)
+	got, err := st.RecentMatching(ctx, 700, 10, 30*24*time.Hour)
 	if err != nil {
 		t.Fatalf("RecentMatching: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("recent = %+v, want the two matching tasks", got)
+		t.Fatalf("recent = %+v, want the two matching tasks from the last 30 days", got)
 	}
 	// Newest first.
 	if got[0].TaskID != 2 || got[1].TaskID != 1 {
@@ -558,7 +559,7 @@ func TestRecentMatching(t *testing.T) {
 		t.Errorf("packages = %v", got[0].Packages)
 	}
 
-	limited, err := st.RecentMatching(ctx, 700, 1)
+	limited, err := st.RecentMatching(ctx, 700, 1, 30*24*time.Hour)
 	if err != nil {
 		t.Fatalf("RecentMatching with a limit: %v", err)
 	}
@@ -568,7 +569,7 @@ func TestRecentMatching(t *testing.T) {
 
 	// An incomplete subscription returns nothing rather than everything.
 	subscribe(t, st, 701, []string{"grenka"}, nil, nil, epoch)
-	empty, err := st.RecentMatching(ctx, 701, 10)
+	empty, err := st.RecentMatching(ctx, 701, 10, 30*24*time.Hour)
 	if err != nil {
 		t.Fatalf("RecentMatching: %v", err)
 	}

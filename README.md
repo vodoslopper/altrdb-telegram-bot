@@ -293,7 +293,7 @@ outbox rows.
 | `/states DONE FAILED` | Replaces the state selection |
 | `/branches` | Checkbox list of branches loaded from RDB and cached |
 | `/branches sisyphus p11` | Replaces the branch selection |
-| `/recent [n]` | Up to 30 currently matching tasks from the local snapshot table. Never touches the watermark |
+| `/recent [n]` | Up to 30 matching tasks changed within `RECENT_TASK_MAX_AGE` (30 days by default), from the local snapshot table. Never touches the watermark |
 | `/pause`, `/resume` | Stop and restart delivery; settings are kept |
 | `/test` | Sends one sample notification built from your saved settings, straight to the chat (not through the outbox) |
 | `/task <id>` | Fetches one task from `task_info` and shows it with its approvals |
@@ -361,6 +361,7 @@ per run.
 | `HTTP_TLS_TIMEOUT` | `10s` | TLS handshake timeout |
 | `DATABASE_PATH` | `/var/lib/altrdb-telegram-bot/bot.db` | SQLite file; the directory is created |
 | `SNAPSHOT_RETENTION` | `720h` | Snapshots with an older `task_changed` are pruned |
+| `RECENT_TASK_MAX_AGE` | `720h` | Oldest `task_changed` age included by `/recent` |
 | `LEASE_TTL` | `90s` | How long a lease stays valid without a heartbeat |
 | `LEASE_HEARTBEAT` | `30s` | Heartbeat interval; must be shorter than the TTL |
 | `NOTIFY_INTERVAL` | `5s` | How often the outbox is drained, ≥ `1s` |
