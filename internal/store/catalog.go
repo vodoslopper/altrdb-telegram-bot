@@ -18,6 +18,8 @@ import (
 // ReplaceBranches upserts the branch list reported by RDB. Branches that are no
 // longer reported are kept: a chat may still be subscribed to one, and dropping
 // the row would silently change the meaning of that subscription.
+// The four branches explicitly retired in migration 0002 are excluded even
+// though RDB still advertises them without any task data.
 func (s *Store) ReplaceBranches(ctx context.Context, branches []string) error {
 	if len(branches) == 0 {
 		return nil
@@ -37,6 +39,10 @@ func (s *Store) ReplaceBranches(ctx context.Context, branches []string) error {
 		for i, b := range branches {
 			b = strings.TrimSpace(b)
 			if b == "" {
+				continue
+			}
+			switch b {
+			case "c9f1", "c8", "c7.1", "c7":
 				continue
 			}
 			if _, err := stmt.ExecContext(ctx, b, i, now, now); err != nil {

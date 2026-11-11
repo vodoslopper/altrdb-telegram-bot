@@ -265,6 +265,42 @@ func TestToggleBranchStampsTheWatermark(t *testing.T) {
 	}
 }
 
+func TestBranchesPanelIsOneTwoColumnPage(t *testing.T) {
+	h := newHarness(t, nil)
+	h.send("/start")
+	h.ensureBranchCatalogue("sisyphus", "p11", "p10", "p9", "p8")
+	// An old page callback must resolve to the single current screen.
+	p, err := h.tg.branchesPanel(h.ctx, testChatID, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, row := range p.markup.InlineKeyboard {
+		toggles := 0
+		for _, b := range row {
+			if strings.HasPrefix(b.CallbackData, "pg:br:") {
+				t.Errorf("unexpected pagination: %q", b.CallbackData)
+			}
+			if strings.HasPrefix(b.CallbackData, "br:") {
+				toggles++
+				if !strings.HasSuffix(b.CallbackData, ":0") {
+					t.Errorf("unexpected page: %q", b.CallbackData)
+				}
+			}
+		}
+		if toggles > 0 {
+			want := min(2, 5-count)
+			if toggles != want {
+				t.Errorf("row has %d branches, want %d", toggles, want)
+			}
+			count += toggles
+		}
+	}
+	if count != 5 {
+		t.Errorf("showed %d branches, want 5", count)
+	}
+}
+
 func TestBranchSelectAllAndClearAll(t *testing.T) {
 	h := newHarness(t, nil)
 	h.send("/start")

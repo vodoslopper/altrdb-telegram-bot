@@ -60,8 +60,10 @@ const (
 // feed invented after this binary was built; if it ever happens the panel
 // paginates rather than having the whole edit rejected.
 const (
-	statesColumns = 2
-	statesPerPage = 96
+	statesColumns   = 2
+	statesPerPage   = 96
+	branchesColumns = 2
+	branchesPerPage = 96
 )
 
 // panel is one editable screen: its text and its keyboard.
@@ -211,7 +213,8 @@ func (bt *Bot) statesPanel(ctx context.Context, chatID int64, page int) (*panel,
 // branches
 // ---------------------------------------------------------------------------
 
-// branchesPanel renders the branch checklist from the cached RDB catalogue.
+// branchesPanel shows the cached RDB catalogue in two columns on one screen.
+// Only catalogues exceeding Telegram's button limit need a fallback page.
 func (bt *Bot) branchesPanel(ctx context.Context, chatID int64, page int) (*panel, error) {
 	all, err := bt.store.ListBranches(ctx)
 	if err != nil {
@@ -226,10 +229,10 @@ func (bt *Bot) branchesPanel(ctx context.Context, chatID int64, page int) (*pane
 		selected[s.Branch] = s
 	}
 
-	pages := pageCount(len(all), bt.pageSize)
+	pages := pageCount(len(all), branchesPerPage)
 	page = clampPage(page, pages)
-	start := page * bt.pageSize
-	end := min(start+bt.pageSize, len(all))
+	start := page * branchesPerPage
+	end := min(start+branchesPerPage, len(all))
 
 	p := &panel{}
 	var b strings.Builder
@@ -238,14 +241,16 @@ func (bt *Bot) branchesPanel(ctx context.Context, chatID int64, page int) (*pane
 		b.WriteString("\nThe branch list could not be loaded from RDB yet.\n" +
 			"Tap ⟳ Refresh to try again. The last known list is kept when RDB is unreachable.")
 	}
+	toggles := make([]models.InlineKeyboardButton, 0, end-start)
 	for _, br := range all[start:end] {
 		box := emptyBox
 		if _, ok := selected[br.Name]; ok {
 			box = checkedBox
 		}
-		p.markup.InlineKeyboard = append(p.markup.InlineKeyboard,
-			[]models.InlineKeyboardButton{{Text: box + " " + br.Name, CallbackData: fmt.Sprintf("br:%d:%d", br.ID, page)}})
+		toggles = append(toggles, models.InlineKeyboardButton{
+			Text: box + " " + br.Name, CallbackData: fmt.Sprintf("br:%d:%d", br.ID, page)})
 	}
+	p.markup.InlineKeyboard = append(p.markup.InlineKeyboard, buttonRows(toggles, branchesColumns)...)
 
 	p.markup.InlineKeyboard = append(p.markup.InlineKeyboard,
 		[]models.InlineKeyboardButton{

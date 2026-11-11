@@ -483,6 +483,23 @@ func TestConversationState(t *testing.T) {
 // catalogues
 // ---------------------------------------------------------------------------
 
+func TestReplaceBranchesExcludesRetiredBranches(t *testing.T) {
+	st, _ := newTestStore(t)
+	ctx := context.Background()
+	for range 2 {
+		if err := st.ReplaceBranches(ctx, []string{"sisyphus", "c9f1", "c8", "c7.1", "c7", "c8.1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	names, err := st.BranchNames(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(names, ",") != "sisyphus,c8.1" {
+		t.Errorf("branches after repeated refresh = %v", names)
+	}
+}
+
 func TestReplaceBranchesKeepsUnknownOnes(t *testing.T) {
 	st, _ := newTestStore(t)
 	ctx := context.Background()
