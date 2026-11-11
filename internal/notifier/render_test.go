@@ -30,11 +30,12 @@ func TestRenderMatchesTheDocumentedFormat(t *testing.T) {
 	got := stripTags(Render(sampleEvent()))
 	want := strings.Join([]string{
 		"✅ Task #433219: DONE",
+		"📦 postfix 3.8.21-alt1",
+		"",
 		"Branch: sisyphus",
 		"Owner: @glebfm",
 		"Try/iteration: 2/1",
 		"Stage: task-save-repo",
-		"Packages: postfix 3.8.21-alt1",
 		"Changed: 2026-09-16 13:56 UTC",
 	}, "\n")
 	if got != want {
@@ -76,7 +77,7 @@ func TestRenderOmitsEmptyFields(t *testing.T) {
 	if strings.Contains(got, "Stage:") {
 		t.Errorf("an empty stage should not be rendered: %q", got)
 	}
-	if strings.Contains(got, "Packages:") {
+	if strings.Contains(got, "📦") {
 		t.Errorf("an empty package list should not be rendered: %q", got)
 	}
 }

@@ -149,7 +149,7 @@ func renderRecent(events []model.TaskEvent, sub *model.Subscription, limit int) 
 			notifier.EscapeHTML(ev.TaskRepo),
 			notifier.EscapeHTML(ev.Owner))
 		if pkgs := strings.Join(ev.Packages, ", "); pkgs != "" {
-			fmt.Fprintf(&b, "   %s\n", notifier.EscapeHTML(notifier.TruncateRunes(pkgs, 160)))
+			fmt.Fprintf(&b, "   📦 <b>%s</b>\n", notifier.EscapeHTML(notifier.TruncateRunes(pkgs, 160)))
 		}
 		fmt.Fprintf(&b, "   changed %s\n", notifier.EscapeHTML(formatWhen(ev.Changed)))
 	}
@@ -192,6 +192,9 @@ func renderMaintainerResult(added, duplicates, invalid, unknown []string) string
 func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<b>Task #%d</b> · %s\n\n", ev.TaskID, notifier.EscapeHTML(ev.State))
+	if len(ev.Packages) > 0 {
+		fmt.Fprintf(&b, "📦 <b>%s</b>\n\n", notifier.EscapeHTML(notifier.TruncateRunes(strings.Join(ev.Packages, ", "), 400)))
+	}
 	fmt.Fprintf(&b, "Branch: <code>%s</code>\n", notifier.EscapeHTML(ev.TaskRepo))
 	fmt.Fprintf(&b, "Owner: @%s\n", notifier.EscapeHTML(ev.Owner))
 	fmt.Fprintf(&b, "Try/iteration: %d/%d\n", ev.Try, ev.Iter)
@@ -202,9 +205,6 @@ func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int) stri
 	fmt.Fprintf(&b, "Subtasks: %d\n", subtasks)
 	if len(approvals) > 0 {
 		fmt.Fprintf(&b, "Approvals: %s\n", notifier.EscapeHTML(strings.Join(approvals, ", ")))
-	}
-	if len(ev.Packages) > 0 {
-		fmt.Fprintf(&b, "Packages: %s\n", notifier.EscapeHTML(notifier.TruncateRunes(strings.Join(ev.Packages, ", "), 400)))
 	}
 	if msg := strings.TrimSpace(ev.Message); msg != "" {
 		fmt.Fprintf(&b, "Message: <code>%s</code>\n", notifier.EscapeHTML(notifier.TruncateRunes(msg, 300)))

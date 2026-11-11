@@ -87,11 +87,12 @@ func stateEmoji(state string) string {
 // The layout follows the format the product specifies:
 //
 //	✅ Task #433219: DONE
+//	📦 postfix 3.8.21-alt1
+//
 //	Branch: sisyphus
 //	Owner: @glebfm
 //	Try/iteration: 2/1
 //	Stage: task-save-repo
-//	Packages: postfix 3.8.21-alt1
 //	Changed: 2026-09-16 13:56 UTC
 func Render(ev model.TaskEvent) string {
 	head := fmt.Sprintf("%s <b>Task #%d: %s</b>",
@@ -101,14 +102,14 @@ func Render(ev model.TaskEvent) string {
 	}
 
 	lines := []string{head}
+	if pkg := renderPackages(ev.Packages); pkg != "" {
+		lines = append(lines, "📦 <b>"+pkg+"</b>", "")
+	}
 	lines = append(lines, "Branch: <code>"+EscapeHTML(ev.TaskRepo)+"</code>")
 	lines = append(lines, "Owner: "+EscapeHTML("@"+ev.Owner))
 	lines = append(lines, fmt.Sprintf("Try/iteration: %d/%d", ev.Try, ev.Iter))
 	if ev.Stage != "" {
 		lines = append(lines, "Stage: <code>"+EscapeHTML(TruncateRunes(ev.Stage, maxStageRunes))+"</code>")
-	}
-	if pkg := renderPackages(ev.Packages); pkg != "" {
-		lines = append(lines, "Packages: "+pkg)
 	}
 	if msg := strings.TrimSpace(ev.Message); msg != "" {
 		lines = append(lines, "Message: <code>"+EscapeHTML(TruncateRunes(humaniseMessage(msg), maxMessageRunes))+"</code>")

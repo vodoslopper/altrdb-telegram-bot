@@ -11,11 +11,12 @@ crashes and restarts.
 
 ```
 ✅ Task #433219: BUILDING → DONE
+📦 postfix 3.8.21-alt1
+
 Branch: sisyphus
 Owner: @glebfm
 Try/iteration: 2/1
 Stage: task-save-repo
-Packages: postfix 3.8.21-alt1
 Changed: 2026-09-16 13:56 UTC
 [ Open task #433219 ]
 ```
