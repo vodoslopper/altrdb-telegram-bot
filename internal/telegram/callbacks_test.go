@@ -491,6 +491,10 @@ func TestPanelButtonsThatSendTheirOwnMessage(t *testing.T) {
 
 	h.api.reset()
 	h.press("tt")
+	if !strings.Contains(h.lastEditedPlain(), "Test notifications") {
+		t.Fatal("the test button did not open the submenu")
+	}
+	h.press("tt:DONE")
 	if !strings.Contains(h.lastText("sendMessage"), "Task #433219") {
 		t.Error("the test button did not send a sample")
 	}
@@ -499,6 +503,44 @@ func TestPanelButtonsThatSendTheirOwnMessage(t *testing.T) {
 // ---------------------------------------------------------------------------
 // callback safety
 // ---------------------------------------------------------------------------
+
+func TestTestSubmenuSamples(t *testing.T) {
+	for _, choice := range []struct {
+		data, state string
+		testonly    bool
+	}{
+		{"tt:DONE", "DONE", false},
+		{"tt:TESTED:testonly", "TESTED", true},
+		{"tt:FAILED", "FAILED", false},
+		{"tt:BUILDING", "BUILDING", false},
+	} {
+		t.Run(choice.data, func(t *testing.T) {
+			h := newHarness(t, nil)
+			h.subscribe(testChatID, []string{"grenka"}, []string{"DONE"}, []string{"p11"}, epoch)
+			h.send("/test")
+			h.api.reset()
+			h.press(choice.data)
+			sends := h.api.byMethod("sendMessage")
+			if len(sends) != 1 {
+				t.Fatalf("sent %d messages, want one sample", len(sends))
+			}
+			text := sends[0].Plain()
+			if !strings.Contains(text, "Task #433219: "+choice.state) || !strings.Contains(text, "test notification") {
+				t.Errorf("unexpected sample: %s", text)
+			}
+			if strings.Contains(text, "Flags: [testonly]") != choice.testonly {
+				t.Errorf("unexpected flags: %s", text)
+			}
+			if !strings.Contains(h.lastEditedPlain(), "Test notifications") {
+				t.Error("sample selection must keep the submenu open")
+			}
+			h.press("dn:tt")
+			if !strings.Contains(h.lastEditedPlain(), "ALT RDB build-task notifications") {
+				t.Error("settings button did not return to settings")
+			}
+		})
+	}
+}
 
 func TestCallbackOnAForeignMessageIsRefused(t *testing.T) {
 	h := newHarness(t, nil)

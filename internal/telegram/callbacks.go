@@ -139,8 +139,20 @@ func (bt *Bot) handleCallback(ctx context.Context, cb *models.CallbackQuery) {
 	case "en":
 		text, markup, err = bt.cbEnable(ctx, a, parts)
 	case "tt":
-		err = bt.cmdTest(ctx, a)
-		text, markup, err = bt.withSettings(ctx, a, err)
+		if len(parts) > 1 {
+			valid := false
+			for _, state := range []string{"DONE", "TESTED", "FAILED", "BUILDING"} {
+				valid = valid || parts[1] == state
+			}
+			if !valid || len(parts) > 3 || (parts[1] == "TESTED" && len(parts) != 3) || (len(parts) == 3 && (parts[2] != "testonly" || parts[1] != "TESTED")) {
+				err = errStaleCallback
+				break
+			}
+			ans.ok()
+			err = bt.sendTest(ctx, a, parts[1], len(parts) == 3)
+		}
+		p := testPanel()
+		text, markup = p.text, p.markup
 	case "rc":
 		if err := bt.cmdRecent(ctx, a, ""); err != nil {
 			bt.log.Error("recent tasks failed", "chat_id", a.chatID, "error", err.Error())

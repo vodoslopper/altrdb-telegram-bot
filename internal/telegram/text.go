@@ -89,7 +89,7 @@ follow changes into a state you selected, in a branch you selected.
 /recent — matching tasks right now, without changing anything
 /pause — stop deliveries (settings are kept)
 /resume — start deliveries again
-/test — send one sample notification
+/test — choose a sample notification
 /task &lt;id&gt; — fetch one task from RDB
 /help — this message
 /cancel — abandon a half-finished prompt

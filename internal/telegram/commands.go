@@ -355,6 +355,15 @@ func (bt *Bot) cmdTest(ctx context.Context, a access) error {
 	if _, err := bt.ensureChat(ctx, a); err != nil {
 		return err
 	}
+	p := testPanel()
+	bt.send(ctx, a.chatID, p.text, p.markup)
+	return nil
+}
+
+func (bt *Bot) sendTest(ctx context.Context, a access, state string, testonly bool) error {
+	if _, err := bt.ensureChat(ctx, a); err != nil {
+		return err
+	}
 	sub, err := bt.store.LoadSubscription(ctx, a.chatID)
 	if err != nil {
 		return err
@@ -368,6 +377,14 @@ func (bt *Bot) cmdTest(ctx context.Context, a access) error {
 		branch = sub.Branches[0].Branch
 	}
 	ev := notifier.SampleEvent(owner, branch, bt.clock.Now())
+	ev.State = state
+	if testonly {
+		ev.Testonly = 1
+	}
+	if state == "FAILED" || state == "FAILING" {
+		ev.Stage = "task-build"
+		ev.Message = "test notification: sample build failure"
+	}
 
 	markup := models.InlineKeyboardMarkup{InlineKeyboard: [][]models.InlineKeyboardButton{{
 		{Text: fmt.Sprintf("Open task #%d", ev.TaskID), URL: notifier.TaskURL(ev.TaskID)},

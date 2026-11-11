@@ -684,6 +684,12 @@ func TestTestCommandSendsASample(t *testing.T) {
 	h.api.reset()
 
 	h.send("/test")
+	menu, ok := h.api.lastByMethod("sendMessage")
+	if !ok || len(menu.Buttons()) != 5 || !strings.Contains(menu.Plain(), "Test notifications") {
+		t.Fatal("expected four sample choices and a settings button")
+	}
+	h.api.reset()
+	h.press("tt:DONE")
 	sends := h.api.byMethod("sendMessage")
 	if len(sends) == 0 {
 		t.Fatal("no sample notification was sent")
@@ -717,6 +723,7 @@ func TestTestCommandWarnsAboutAnIncompleteSubscription(t *testing.T) {
 	h.send("/start")
 	h.api.reset()
 	h.send("/test")
+	h.press("tt:DONE")
 	if !strings.Contains(strings.Join(allTexts(h), "\n"), "incomplete") {
 		t.Error("an incomplete subscription must be pointed out")
 	}

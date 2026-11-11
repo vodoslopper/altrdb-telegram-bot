@@ -72,6 +72,19 @@ type panel struct {
 	markup models.InlineKeyboardMarkup
 }
 
+// testPanel offers synthetic notifications without changing subscriptions.
+func testPanel() *panel {
+	p := &panel{text: "<b>Test notifications</b>\n\nChoose a task state to send a sample notification. Samples use your saved maintainer and branch. You can try several without leaving this menu."}
+	var buttons []models.InlineKeyboardButton
+	for _, state := range []string{"DONE", "FAILED", "BUILDING"} {
+		buttons = append(buttons, models.InlineKeyboardButton{Text: state, CallbackData: "tt:" + state})
+	}
+	buttons = append(buttons, models.InlineKeyboardButton{Text: "TESTED", CallbackData: "tt:TESTED:testonly"})
+	p.markup.InlineKeyboard = buttonRows(buttons, 2)
+	p.markup.InlineKeyboard = append(p.markup.InlineKeyboard, []models.InlineKeyboardButton{{Text: "‹ Settings", CallbackData: "dn:tt"}})
+	return p
+}
+
 // listHash fingerprints an ordered list so a callback can prove the screen the
 // user tapped is still the screen the bot is looking at.
 func listHash(items []string) string {

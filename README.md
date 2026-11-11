@@ -296,7 +296,7 @@ outbox rows.
 | `/branches sisyphus p11` | Replaces the branch selection |
 | `/recent [n]` | Up to 30 matching tasks changed within `RECENT_TASK_MAX_AGE` (30 days by default), from the local snapshot table. Never touches the watermark |
 | `/pause`, `/resume` | Stop and restart delivery; settings are kept |
-| `/test` | Sends one sample notification built from your saved settings, straight to the chat (not through the outbox) |
+| `/test` | Opens a submenu with four samples: DONE, TESTED with testonly, FAILED, and BUILDING. Samples use your saved settings and bypass the outbox. |
 | `/task <id>` | Fetches one task from `task_info` and shows it with its approvals |
 | `/cancel` | Abandons a pending prompt |
 | `/help` | Command list |
