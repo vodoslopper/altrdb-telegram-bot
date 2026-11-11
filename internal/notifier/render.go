@@ -97,9 +97,6 @@ func stateEmoji(state string) string {
 func Render(ev model.TaskEvent) string {
 	head := fmt.Sprintf("%s <b>Task #%d: %s</b>",
 		stateEmoji(ev.State), ev.TaskID, EscapeHTML(displayState(ev)))
-	if ev.Testonly != 0 {
-		head += " <code>[testonly]</code>"
-	}
 
 	lines := []string{head}
 	if pkg := renderPackages(ev.Packages); pkg != "" {
@@ -108,6 +105,9 @@ func Render(ev model.TaskEvent) string {
 	lines = append(lines, "Branch: <code>"+EscapeHTML(ev.TaskRepo)+"</code>")
 	lines = append(lines, "Owner: "+EscapeHTML("@"+ev.Owner))
 	lines = append(lines, fmt.Sprintf("Try/iteration: %d/%d", ev.Try, ev.Iter))
+	if ev.Testonly != 0 {
+		lines = append(lines, "Flags: <code>[testonly]</code>")
+	}
 	if ev.Stage != "" {
 		lines = append(lines, "Stage: <code>"+EscapeHTML(TruncateRunes(ev.Stage, maxStageRunes))+"</code>")
 	}

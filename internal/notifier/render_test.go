@@ -67,6 +67,12 @@ func TestRenderMarksTestonlyAndFirstObservation(t *testing.T) {
 	if !strings.Contains(got, "[testonly]") {
 		t.Errorf("testonly tasks must be marked: %q", got)
 	}
+	if strings.Contains(strings.SplitN(got, "\n", 2)[0], "[testonly]") {
+		t.Errorf("testonly flag must not appear in the heading: %q", got)
+	}
+	if !strings.Contains(got, "Try/iteration: 2/1\nFlags: <code>[testonly]</code>\nStage:") {
+		t.Errorf("testonly flag must appear directly below try/iteration: %q", got)
+	}
 }
 
 func TestRenderOmitsEmptyFields(t *testing.T) {
