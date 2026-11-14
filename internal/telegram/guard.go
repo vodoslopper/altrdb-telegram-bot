@@ -168,6 +168,9 @@ func (bt *Bot) handleMyChatMember(ctx context.Context, u *models.ChatMemberUpdat
 		bt.log.Info("chat disabled because the bot was removed",
 			"chat_id", u.Chat.ID, "status", newStatus)
 	case "member", "administrator":
+		if (u.Chat.Type != models.ChatTypePrivate && !bt.cfg.AllowGroups) || !bt.cfg.AllowUser(u.From.ID) {
+			return
+		}
 		chat, err := bt.store.GetChat(ctx, u.Chat.ID)
 		if err != nil {
 			// Never talked to us; nothing to re-enable.

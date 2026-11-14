@@ -106,6 +106,9 @@ func New(opts Options) (*Bot, error) {
 	if opts.Store == nil {
 		return nil, errors.New("telegram: store is required")
 	}
+	if opts.Config.TelegramMode == config.ModeWebhook && opts.Config.TelegramWebhookSecret == "" {
+		return nil, errors.New("telegram: webhook secret is required")
+	}
 	if opts.Clock == nil {
 		opts.Clock = clock.New()
 	}
@@ -144,6 +147,9 @@ func New(opts Options) (*Bot, error) {
 			bt.log.Error("telegram error", "error", err.Error())
 			bt.setLastError(err.Error())
 		}),
+	}
+	if opts.Config.TelegramMode == config.ModeWebhook {
+		libOpts = append(libOpts, bot.WithWebhookSecretToken(opts.Config.TelegramWebhookSecret))
 	}
 	if opts.ServerURL != "" {
 		libOpts = append(libOpts, bot.WithServerURL(opts.ServerURL))
@@ -439,7 +445,7 @@ func isNotModified(err error) bool {
 // noteUnreachable disables a chat after Telegram says the bot was blocked or
 // the chat vanished, so the delivery worker stops hammering a dead endpoint.
 func (bt *Bot) noteUnreachable(ctx context.Context, chatID int64, err error) {
-	if !errors.Is(err, bot.ErrorForbidden) && !errors.Is(err, bot.ErrorUnauthorized) {
+	if !errors.Is(err, bot.ErrorForbidden) {
 		return
 	}
 	if derr := bt.store.DisableChat(ctx, chatID, err.Error()); derr != nil {
