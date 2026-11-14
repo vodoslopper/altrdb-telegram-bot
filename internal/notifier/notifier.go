@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 
@@ -61,6 +62,8 @@ type Notifier struct {
 	started      bool
 	lastDelivery time.Time
 	lastError    string
+	fatalError   error
+	blockedUntil time.Time
 
 	sendMu   sync.Mutex
 	lastSend time.Time
@@ -137,6 +140,9 @@ func (n *Notifier) Run(ctx context.Context) error {
 	// Drain once immediately so a notification queued while the process was
 	// down does not wait a full interval.
 	n.drain(ctx)
+	if err := n.fatal(); err != nil {
+		return err
+	}
 
 	ticker := time.NewTicker(n.opts.Interval)
 	defer ticker.Stop()
@@ -147,6 +153,9 @@ func (n *Notifier) Run(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			n.drain(ctx)
+			if err := n.fatal(); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -155,7 +164,7 @@ func (n *Notifier) Run(ctx context.Context) error {
 func (n *Notifier) drain(ctx context.Context) int {
 	delivered := 0
 	for batch := 0; batch < 10; batch++ {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || n.deliveryBlocked() {
 			return delivered
 		}
 		rows, err := n.store.ClaimDueNotifications(ctx, n.opts.BatchSize)
@@ -167,12 +176,9 @@ func (n *Notifier) drain(ctx context.Context) int {
 		if len(rows) == 0 {
 			return delivered
 		}
-		for _, row := range rows {
-			if ctx.Err() != nil {
-				// Put the claim back so it is not lost on shutdown.
-				if err := n.store.RetryNotification(ctx, row.ID, "shutdown", n.clock.Now(), false); err != nil {
-					n.log.Error("requeueing notification failed", "id", row.ID, "error", err.Error())
-				}
+		for i, row := range rows {
+			if ctx.Err() != nil || n.deliveryBlocked() {
+				n.requeueClaims(ctx, rows[i:])
 				return delivered
 			}
 			if n.Deliver(ctx, row) {
@@ -198,8 +204,27 @@ func (n *Notifier) Deliver(ctx context.Context, row model.Notification) bool {
 	}
 
 	n.pace(ctx)
+	if ctx.Err() != nil {
+		n.requeueClaims(ctx, []model.Notification{row})
+		return false
+	}
+	// A UI request or an earlier row in this batch may have cancelled this claim.
+	current, err := n.store.GetNotification(ctx, row.ID)
+	if err != nil {
+		n.setLastError(err.Error())
+		n.requeueClaims(ctx, []model.Notification{row})
+		return false
+	}
+	if current.Status != model.OutboxSending {
+		return false
+	}
+	chat, err := n.store.GetChat(ctx, row.ChatID)
+	if err != nil || !chat.Enabled {
+		n.requeueClaims(ctx, []model.Notification{row})
+		return false
+	}
 
-	_, err := n.sender.SendMessage(ctx, &bot.SendMessageParams{
+	_, err = n.sender.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID:             row.ChatID,
 		Text:               text,
 		ParseMode:          models.ParseModeHTML,
@@ -207,13 +232,14 @@ func (n *Notifier) Deliver(ctx context.Context, row model.Notification) bool {
 		ReplyMarkup:        button,
 	})
 
-	n.mu.Lock()
-	n.lastDelivery = n.clock.Now()
-	n.mu.Unlock()
-
 	if err == nil {
+		n.mu.Lock()
+		n.lastDelivery = n.clock.Now()
+		n.lastError = ""
+		n.mu.Unlock()
 		if serr := n.store.MarkNotificationSent(ctx, row.ID); serr != nil {
 			n.log.Error("marking notification sent failed", "id", row.ID, "error", serr.Error())
+			n.setLastError(serr.Error())
 		}
 		n.observe("sent")
 		n.log.Info("notification delivered",
@@ -251,8 +277,7 @@ func (n *Notifier) SendNow(ctx context.Context, chatID int64, text string, marku
 func (n *Notifier) handleFailure(ctx context.Context, row model.Notification, err error) {
 	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
 		// Shutting down mid-send: leave the row for the next start.
-		_ = n.store.RetryNotification(context.WithoutCancel(ctx), row.ID,
-			"interrupted by shutdown", n.clock.Now(), false)
+		n.requeueClaims(ctx, []model.Notification{row})
 		return
 	}
 
@@ -260,9 +285,29 @@ func (n *Notifier) handleFailure(ctx context.Context, row model.Notification, er
 	attempts := row.Attempts + 1
 
 	switch kind {
+	case failureAuth:
+		n.requeueClaims(ctx, []model.Notification{row})
+		n.mu.Lock()
+		n.fatalError = fmt.Errorf("telegram authentication failed: %w", err)
+		n.mu.Unlock()
+		n.setLastError(reason)
+		n.log.Error("telegram authentication failed; stopping delivery", "error", reason)
+	case failurePayload:
+		n.observe("permanent")
+		if serr := n.store.MarkNotificationDead(ctx, row.ID, reason); serr != nil {
+			n.log.Error("marking rejected payload dead failed", "id", row.ID, "error", serr.Error())
+		}
+		if n.metrics != nil {
+			n.metrics.OutboxDead.Inc()
+		}
+		n.log.Error("telegram rejected notification payload", "id", row.ID, "error", reason)
+		n.setLastError(reason)
 	case failureRateLimit:
 		n.observe("rate_limited")
 		next := n.clock.Now().Add(retryAfter)
+		n.mu.Lock()
+		n.blockedUntil = next
+		n.mu.Unlock()
 		if serr := n.store.RetryNotification(ctx, row.ID, reason, next, false); serr != nil {
 			n.log.Error("requeueing rate-limited notification failed", "id", row.ID, "error", serr.Error())
 		}
@@ -323,6 +368,8 @@ const (
 	failureTransient failureKind = iota
 	failureRateLimit
 	failurePermanent
+	failurePayload
+	failureAuth
 )
 
 // classify maps a Telegram error onto a reaction. The library surfaces the Bot
@@ -348,12 +395,12 @@ func classify(err error) (failureKind, time.Duration, string) {
 		// never succeed and Telegram starts penalising the token.
 		return failurePermanent, 0, err.Error()
 	case errors.Is(err, bot.ErrorBadRequest):
-		// 400: our payload was rejected (chat not found, text too long,
-		// entities could not be parsed). Same payload would fail again.
-		return failurePermanent, 0, err.Error()
+		if strings.Contains(strings.ToLower(err.Error()), "chat not found") {
+			return failurePermanent, 0, err.Error()
+		}
+		return failurePayload, 0, err.Error()
 	case errors.Is(err, bot.ErrorUnauthorized):
-		// 401: the token is wrong or revoked. Nothing about this row can fix it.
-		return failurePermanent, 0, err.Error()
+		return failureAuth, 0, err.Error()
 	default:
 		return failureTransient, 0, err.Error()
 	}
@@ -427,4 +474,33 @@ func (n *Notifier) setLastError(s string) {
 	n.mu.Lock()
 	n.lastError = s
 	n.mu.Unlock()
+}
+
+func (n *Notifier) fatal() error {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.fatalError
+}
+
+func (n *Notifier) deliveryBlocked() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.fatalError != nil || n.clock.Now().Before(n.blockedUntil)
+}
+
+// Release every unsent claim without charging an attempt, even during shutdown.
+func (n *Notifier) requeueClaims(ctx context.Context, rows []model.Notification) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	n.mu.RLock()
+	next := n.blockedUntil
+	n.mu.RUnlock()
+	if next.Before(n.clock.Now()) {
+		next = n.clock.Now()
+	}
+	for _, row := range rows {
+		if err := n.store.RetryNotification(cleanupCtx, row.ID, "delivery deferred", next, false); err != nil {
+			n.log.Error("requeueing unsent claim failed", "id", row.ID, "error", err.Error())
+		}
+	}
 }

@@ -335,13 +335,13 @@ func TestBadRequestIsPermanent(t *testing.T) {
 	}
 }
 
-func TestUnauthorizedIsPermanent(t *testing.T) {
+func TestUnauthorizedPreservesQueue(t *testing.T) {
 	h := newHarness(t, fmt.Errorf("%w: token revoked", bot.ErrorUnauthorized))
 	ctx := context.Background()
 	id := h.enqueue(t, 6, "fp", epoch)
 	h.n.Drain(ctx)
-	if got := h.row(t, id).Status; got != model.OutboxDead {
-		t.Errorf("status = %q, want dead", got)
+	if got := h.row(t, id).Status; got != model.OutboxPending {
+		t.Errorf("status = %q, want pending", got)
 	}
 }
 
@@ -547,8 +547,8 @@ func TestNotifierHealthReportsErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("error = %v, want the last failure surfaced", err)
 	}
-	if last.IsZero() {
-		t.Error("the last delivery attempt must be stamped")
+	if !last.IsZero() {
+		t.Error("failed sends must not stamp last delivery")
 	}
 	if running {
 		t.Error("Drain alone must not mark the worker as running")
@@ -620,7 +620,7 @@ func TestClassify(t *testing.T) {
 		{"plain network error", errors.New("EOF"), failureTransient},
 		{"forbidden", fmt.Errorf("%w: blocked", bot.ErrorForbidden), failurePermanent},
 		{"bad request", fmt.Errorf("%w: chat not found", bot.ErrorBadRequest), failurePermanent},
-		{"unauthorized", fmt.Errorf("%w: revoked", bot.ErrorUnauthorized), failurePermanent},
+		{"unauthorized", fmt.Errorf("%w: revoked", bot.ErrorUnauthorized), failureAuth},
 		{"too many requests", &bot.TooManyRequestsError{RetryAfter: 5}, failureRateLimit},
 		{"wrapped too many requests", fmt.Errorf("send failed: %w", &bot.TooManyRequestsError{RetryAfter: 5}), failureRateLimit},
 		{"conflict", fmt.Errorf("%w: terminated", bot.ErrorConflict), failureTransient},

@@ -101,7 +101,7 @@ func (s *Store) ClaimDueNotifications(ctx context.Context, limit int) ([]model.N
 func (s *Store) MarkNotificationSent(ctx context.Context, id int64) error {
 	now := s.now()
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE notifications SET status = 'sent', sent_at = ?, completed_at = ?, last_error = '' WHERE id = ?`,
+		`UPDATE notifications SET status = 'sent', sent_at = ?, completed_at = ?, last_error = '' WHERE id = ? AND status IN ('pending', 'sending')`,
 		now, now, id); err != nil {
 		return fmt.Errorf("store: mark notification %d sent: %w", id, err)
 	}
@@ -117,7 +117,7 @@ func (s *Store) RetryNotification(ctx context.Context, id int64, lastErr string,
 	if charge {
 		q += `, attempts = attempts + 1`
 	}
-	q += ` WHERE id = ?`
+	q += ` WHERE id = ? AND status IN ('pending', 'sending')`
 	if _, err := s.db.ExecContext(ctx, q,
 		truncate(lastErr, 512), formatDeadline(nextAttempt), id); err != nil {
 		return fmt.Errorf("store: retry notification %d: %w", id, err)
@@ -130,7 +130,7 @@ func (s *Store) RetryNotification(ctx context.Context, id int64, lastErr string,
 // attempts always equals the number of deliveries actually tried.
 func (s *Store) MarkNotificationDead(ctx context.Context, id int64, lastErr string) error {
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE notifications SET status = 'dead', last_error = ?, completed_at = ?, attempts = attempts + 1 WHERE id = ?`,
+		`UPDATE notifications SET status = 'dead', last_error = ?, completed_at = ?, attempts = attempts + 1 WHERE id = ? AND status IN ('pending', 'sending')`,
 		truncate(lastErr, 512), s.now(), id); err != nil {
 		return fmt.Errorf("store: mark notification %d dead: %w", id, err)
 	}
