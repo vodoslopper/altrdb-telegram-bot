@@ -1,6 +1,6 @@
 // Package migrations embeds the versioned SQL schema of altrdb-telegram-bot.
 //
-// Files are named NNNN_description.sql and applied in lexical order, each
+// Files are named NNNN_description.sql and applied in numeric version order, each
 // exactly once, recorded in the schema_migrations table. Adding a change means
 // adding a new file; never edit an already released one.
 package migrations
@@ -26,7 +26,11 @@ type Migration struct {
 
 // All returns every embedded migration, ordered by version.
 func All() ([]Migration, error) {
-	entries, err := fs.ReadDir(sqlFiles, ".")
+	return readAll(sqlFiles)
+}
+
+func readAll(files fs.FS) ([]Migration, error) {
+	entries, err := fs.ReadDir(files, ".")
 	if err != nil {
 		return nil, fmt.Errorf("read embedded migrations: %w", err)
 	}
@@ -52,7 +56,7 @@ func All() ([]Migration, error) {
 		}
 		seen[version] = name
 
-		body, err := sqlFiles.ReadFile(name)
+		body, err := fs.ReadFile(files, name)
 		if err != nil {
 			return nil, fmt.Errorf("read migration %s: %w", name, err)
 		}
@@ -61,6 +65,7 @@ func All() ([]Migration, error) {
 		}
 		out = append(out, Migration{Version: version, Name: name, SQL: string(body)})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Version < out[j].Version })
 	return out, nil
 }
 

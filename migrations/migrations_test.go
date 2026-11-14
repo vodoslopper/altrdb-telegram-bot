@@ -3,7 +3,24 @@ package migrations
 import (
 	"strings"
 	"testing"
+	"testing/fstest"
 )
+
+func TestMigrationsSortByNumericVersion(t *testing.T) {
+	all, err := readAll(fstest.MapFS{
+		"9999_before.sql": &fstest.MapFile{Data: []byte("SELECT 9999;")},
+		"10000_after.sql": &fstest.MapFile{Data: []byte("SELECT 10000;")},
+		"0002_early.sql":  &fstest.MapFile{Data: []byte("SELECT 2;")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []int{2, 9999, 10000} {
+		if all[i].Version != want {
+			t.Fatalf("migration %d: version %d, want %d", i, all[i].Version, want)
+		}
+	}
+}
 
 func TestAllReturnsOrderedMigrations(t *testing.T) {
 	all, err := All()
