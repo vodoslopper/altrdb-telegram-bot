@@ -178,7 +178,9 @@ func New(opts Options) (*Bot, error) {
 	bt.api = api
 	bt.botID = api.ID()
 
-	me, err := api.GetMe(context.Background())
+	lookupCtx, cancel := context.WithTimeout(context.Background(), min(bt.lookupTimeout(), 5*time.Second))
+	defer cancel()
+	me, err := api.GetMe(lookupCtx)
 	if err != nil {
 		bt.log.Warn("getMe failed, continuing with the token-derived id", "error", err.Error())
 	} else {
