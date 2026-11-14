@@ -291,23 +291,32 @@ func (bt *Bot) HandleUpdate(ctx context.Context, _ *bot.Bot, u *models.Update) {
 	}
 	bt.updates.Add(1)
 
+	if bt.metrics != nil {
+		kind := "other"
+		switch {
+		case u.CallbackQuery != nil:
+			kind = "callback_query"
+		case u.Message != nil:
+			kind = "message"
+		case u.MyChatMember != nil:
+			kind = "my_chat_member"
+		}
+		bt.metrics.TelegramUpdatesTotal.WithLabelValues(kind).Inc()
+	}
 	if u.ID > 0 {
-		bt.mu.Lock()
-		stale := u.ID <= bt.lastUpdateID
-		bt.mu.Unlock()
-		if stale {
-			bt.log.Debug("ignoring already processed update", "update_id", u.ID)
+		claimed, err := bt.store.ClaimTelegramUpdate(ctx, u.ID)
+		if err != nil {
+			bt.log.Error("recording telegram update failed", "update_id", u.ID, "error", err.Error())
+			bt.setLastError(err.Error())
+			return
+		}
+		if !claimed {
 			return
 		}
 		bt.mu.Lock()
-		bt.lastUpdateID = u.ID
+		bt.lastUpdateID = max(bt.lastUpdateID, u.ID)
 		bt.lastUpdateAt = bt.clock.Now()
 		bt.mu.Unlock()
-		if err := bt.store.SaveTelegramOffset(ctx, u.ID); err != nil {
-			// Not fatal: the library also tracks the offset in memory, and
-			// Telegram only redelivers unconfirmed updates.
-			bt.log.Warn("persisting telegram offset failed", "update_id", u.ID, "error", err.Error())
-		}
 	}
 
 	// Handlers must never panic into the library's worker goroutine.
