@@ -636,10 +636,14 @@ func TestStatsSnapshot(t *testing.T) {
 	defer srv.Close()
 
 	c := testClient(t, srv, nil)
+	start := time.Now()
 	if _, err := c.Branches(context.Background()); err != nil {
 		t.Fatalf("Branches: %v", err)
 	}
 	st := c.Snapshot()
+	if st.LastLatency < 0 || st.LastLatency > time.Since(start) {
+		t.Fatalf("latency mixed real and fake clocks: %s", st.LastLatency)
+	}
 	if st.Requests != 1 || st.Successes != 1 || st.Failures != 0 {
 		t.Errorf("stats = %+v", st)
 	}

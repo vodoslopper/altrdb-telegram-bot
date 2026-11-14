@@ -486,7 +486,7 @@ func (c *Client) doOnce(ctx context.Context, p, full string, out any) error {
 	req.Header.Set("Accept", "application/json")
 
 	c.requests.Add(1)
-	start := c.clock.Now()
+	start := time.Now()
 	resp, err := c.http.Do(req)
 	latency := time.Since(start)
 	c.lastLatency.Store(int64(latency))
