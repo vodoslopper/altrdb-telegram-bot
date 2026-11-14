@@ -190,7 +190,7 @@ func clampHTML(s string, max int) string {
 		return s
 	}
 	plain := stripTags(s)
-	return TruncateRunes(plain, max)
+	return EscapeHTML(TruncateRunes(plain, max))
 }
 
 func stripTags(s string) string {
