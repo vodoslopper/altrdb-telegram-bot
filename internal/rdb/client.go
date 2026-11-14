@@ -120,10 +120,10 @@ type Options struct {
 	ConnectTimeout        time.Duration
 	TLSHandshakeTimeout   time.Duration
 	ResponseHeaderTimeout time.Duration
-	MaxRetries            int
+	MaxRetries            int // zero uses the default; negative disables retries
 	BackoffBase           time.Duration
 	BackoffMax            time.Duration
-	MinRequestSpacing     time.Duration
+	MinRequestSpacing     time.Duration // zero uses the default; negative disables spacing
 	MaxResponseBytes      int64
 	// HTTPClient overrides the constructed client. Tests point it at an
 	// httptest.Server; production leaves it nil.
@@ -173,8 +173,7 @@ func NewClient(opts Options) *Client {
 	}
 	if opts.MaxRetries < 0 {
 		opts.MaxRetries = 0
-	}
-	if opts.MaxRetries == 0 {
+	} else if opts.MaxRetries == 0 {
 		opts.MaxRetries = DefaultMaxRetries
 	}
 	if opts.BackoffBase <= 0 {

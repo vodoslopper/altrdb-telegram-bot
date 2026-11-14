@@ -374,7 +374,7 @@ per run.
 | `LEASE_HEARTBEAT` | `30s` | Heartbeat interval; must be shorter than the TTL |
 | `NOTIFY_INTERVAL` | `5s` | How often the outbox is drained, ≥ `1s` |
 | `NOTIFY_MAX_ATTEMPTS` | `8` | Transient failures before a row goes `dead`, 1–100 |
-| `NOTIFY_SEND_SPACING` | `50ms` | Minimum gap between two outgoing messages |
+| `NOTIFY_SEND_SPACING` | `50ms` | Minimum gap between two outgoing messages; `0` disables spacing |
 | `TERMINAL_STATES` | `DONE,FAILED` | States treated as final by "terminal only" mode |
 | `HTTP_LISTEN_ADDR` | `127.0.0.1:8080` | Health/metrics listener, **loopback by default** |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |

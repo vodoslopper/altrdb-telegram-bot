@@ -285,7 +285,7 @@ func Parse(get Lookup) (*Config, error) {
 	} else {
 		cfg.NotifyMaxTries = n
 	}
-	if d, err := parseDuration(get, "NOTIFY_SEND_SPACING", cfg.NotifySendSpacing); err != nil {
+	if d, err := parseNonNegativeDuration(get, "NOTIFY_SEND_SPACING", cfg.NotifySendSpacing); err != nil {
 		errs = append(errs, err)
 	} else {
 		cfg.NotifySendSpacing = d
@@ -416,6 +416,14 @@ func getenv(get Lookup, key string) string {
 }
 
 func parseDuration(get Lookup, key string, def time.Duration) (time.Duration, error) {
+	return parseDurationValue(get, key, def, false)
+}
+
+func parseNonNegativeDuration(get Lookup, key string, def time.Duration) (time.Duration, error) {
+	return parseDurationValue(get, key, def, true)
+}
+
+func parseDurationValue(get Lookup, key string, def time.Duration, allowZero bool) (time.Duration, error) {
 	v := getenv(get, key)
 	if v == "" {
 		return def, nil
@@ -424,7 +432,10 @@ func parseDuration(get Lookup, key string, def time.Duration) (time.Duration, er
 	if err != nil {
 		return def, fmt.Errorf("%s: %w", key, err)
 	}
-	if d <= 0 {
+	if allowZero && d < 0 {
+		return def, fmt.Errorf("%s must not be negative, got %s", key, d)
+	}
+	if !allowZero && d <= 0 {
 		return def, fmt.Errorf("%s must be positive, got %s", key, d)
 	}
 	return d, nil
