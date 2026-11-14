@@ -92,7 +92,7 @@ func DSN(path string, busyTimeout time.Duration) string {
 	// Parens are legal unescaped in a query value and the driver decodes them
 	// either way; keeping them readable makes the DSN usable in logs and docs.
 	encoded := strings.NewReplacer("%28", "(", "%29", ")").Replace(q.Encode())
-	return "file:" + path + "?" + encoded
+	return "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + encoded
 }
 
 // Open opens (and creates if needed) the database at path and applies any
