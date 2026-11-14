@@ -170,7 +170,7 @@ func (bt *Bot) cmdStart(ctx context.Context, a access) error {
 	if err != nil {
 		return err
 	}
-	bt.send(ctx, a.chatID, renderOnboarding(chat, sub, bt.botUsername)+"\n\n"+p.text, p.markup)
+	bt.send(ctx, a.chatID, renderOnboarding(chat, sub, bt.botUsername, bt.terminal)+"\n\n"+p.text, p.markup)
 	return nil
 }
 
@@ -256,7 +256,7 @@ func (bt *Bot) setStatesFromArgs(ctx context.Context, a access, args string) err
 		}
 		want = append(want, tok)
 	}
-	if len(want) == 0 && len(rejected) == 0 {
+	if len(want) == 0 {
 		return errors.New("no states given; try /states DONE FAILED")
 	}
 	if err := bt.store.SetAllChatStates(ctx, a.chatID, want); err != nil {
@@ -292,7 +292,7 @@ func (bt *Bot) setBranchesFromArgs(ctx context.Context, a access, args string) e
 		}
 		want = append(want, tok)
 	}
-	if len(want) == 0 && len(rejected) == 0 {
+	if len(want) == 0 {
 		return errors.New("no branches given; try /branches sisyphus p11")
 	}
 	if err := bt.store.SetAllChatBranches(ctx, a.chatID, want); err != nil {

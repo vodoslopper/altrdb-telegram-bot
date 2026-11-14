@@ -54,16 +54,14 @@ const (
 // The states screen is laid out two buttons to a row and fits on one page.
 // State names are short and the lifecycle is bounded, so paging through them
 // hid exactly the states a user wants to see side by side. Telegram caps an
-// inline keyboard at 100 buttons, four of which are reserved here for
-// Select all / Clear all / Refresh / Done, so 96 toggles — 48 rows of two — is
-// the most one screen can carry. Reaching that would take dozens of states the
-// feed invented after this binary was built; if it ever happens the panel
-// paginates rather than having the whole edit rejected.
+// inline keyboard at 100 buttons. Reserve seven for bulk actions, navigation,
+// Refresh and Done; 92 toggles keep full pages in two-column rows.
+
 const (
 	statesColumns   = 2
-	statesPerPage   = 96
+	statesPerPage   = 92
 	branchesColumns = 2
-	branchesPerPage = 96
+	branchesPerPage = 92
 )
 
 // panel is one editable screen: its text and its keyboard.

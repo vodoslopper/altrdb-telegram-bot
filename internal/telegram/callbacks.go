@@ -308,6 +308,22 @@ func (bt *Bot) cbRefresh(ctx context.Context, a access, parts []string) (string,
 	if view == viewBranches {
 		bt.refreshBranchCatalogueNow(ctx)
 	}
+	if view == viewMaintainers && bt.refresh != nil {
+		branches, err := bt.store.ListChatBranches(ctx, a.chatID)
+		if err != nil {
+			return "", nil, err
+		}
+		refreshCtx, cancel := context.WithTimeout(ctx, bt.lookupTimeout())
+		defer cancel()
+		for _, branch := range branches {
+			if err := bt.refresh.RefreshMaintainers(refreshCtx, branch.Branch); err != nil {
+				bt.log.Warn("forced maintainer refresh failed", "branch", branch.Branch, "error", err.Error())
+			}
+			if refreshCtx.Err() != nil {
+				break
+			}
+		}
+	}
 	return bt.render(ctx, a.chatID, view, 0)
 }
 

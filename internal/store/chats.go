@@ -430,16 +430,42 @@ func (s *Store) AddChatBranch(ctx context.Context, chatID int64, branch string) 
 	return now, nil
 }
 
-// SetAllChatBranches implements Select all / Clear all for branches. Already
+// SetAllChatBranches replaces the selected branches. Already
 // checked branches keep their watermark; newly checked ones get "now".
 func (s *Store) SetAllChatBranches(ctx context.Context, chatID int64, branches []string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if len(branches) == 0 {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM chat_branches WHERE chat_id = ?`, chatID); err != nil {
-				return fmt.Errorf("store: clear branches: %w", err)
+		keep := make(map[string]bool, len(branches))
+		for _, branch := range branches {
+			if branch != "" {
+				keep[branch] = true
 			}
-			return nil
 		}
+		rows, err := tx.QueryContext(ctx, `SELECT branch FROM chat_branches WHERE chat_id = ?`, chatID)
+		if err != nil {
+			return fmt.Errorf("store: read selected branches: %w", err)
+		}
+		var remove []string
+		for rows.Next() {
+			var branch string
+			if err := rows.Scan(&branch); err != nil {
+				rows.Close()
+				return err
+			}
+			if !keep[branch] {
+				remove = append(remove, branch)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, branch := range remove {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM chat_branches WHERE chat_id = ? AND branch = ?`, chatID, branch); err != nil {
+				return fmt.Errorf("store: uncheck branch: %w", err)
+			}
+		}
+
 		for _, b := range branches {
 			if b == "" {
 				continue

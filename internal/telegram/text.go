@@ -104,7 +104,7 @@ Bot: ` + notifier.EscapeHTML(orUnknown(at))
 }
 
 // renderOnboarding is what /start answers with.
-func renderOnboarding(chat *model.Chat, sub *model.Subscription, botUsername string) string {
+func renderOnboarding(chat *model.Chat, sub *model.Subscription, botUsername string, terminal model.TerminalStates) string {
 	name := chat.FirstName
 	if name == "" {
 		name = chat.Username
@@ -124,7 +124,7 @@ func renderOnboarding(chat *model.Chat, sub *model.Subscription, botUsername str
 		return b.String()
 	}
 	b.WriteString("Your subscription is complete.\n\n")
-	b.WriteString(renderSettingsText(chat, sub, model.NewTerminalStates(nil)))
+	b.WriteString(renderSettingsText(chat, sub, terminal))
 	return b.String()
 }
 
