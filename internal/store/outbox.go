@@ -16,9 +16,9 @@ import (
 // would only produce a stream of failures against a dead endpoint.
 func (s *Store) CancelPendingNotifications(ctx context.Context, chatID int64, reason string) (int, error) {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE notifications SET status = 'dead', last_error = ?
+		`UPDATE notifications SET status = 'dead', last_error = ?, completed_at = ?
 		 WHERE chat_id = ? AND status IN ('pending', 'sending')`,
-		truncate(reason, 512), chatID)
+		truncate(reason, 512), s.now(), chatID)
 	if err != nil {
 		return 0, fmt.Errorf("store: cancel notifications for chat %d: %w", chatID, err)
 	}
@@ -99,9 +99,10 @@ func (s *Store) ClaimDueNotifications(ctx context.Context, limit int) ([]model.N
 
 // MarkNotificationSent records a successful delivery.
 func (s *Store) MarkNotificationSent(ctx context.Context, id int64) error {
+	now := s.now()
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE notifications SET status = 'sent', sent_at = ?, last_error = '' WHERE id = ?`,
-		s.now(), id); err != nil {
+		`UPDATE notifications SET status = 'sent', sent_at = ?, completed_at = ?, last_error = '' WHERE id = ?`,
+		now, now, id); err != nil {
 		return fmt.Errorf("store: mark notification %d sent: %w", id, err)
 	}
 	return nil
@@ -129,8 +130,8 @@ func (s *Store) RetryNotification(ctx context.Context, id int64, lastErr string,
 // attempts always equals the number of deliveries actually tried.
 func (s *Store) MarkNotificationDead(ctx context.Context, id int64, lastErr string) error {
 	if _, err := s.db.ExecContext(ctx,
-		`UPDATE notifications SET status = 'dead', last_error = ?, attempts = attempts + 1 WHERE id = ?`,
-		truncate(lastErr, 512), id); err != nil {
+		`UPDATE notifications SET status = 'dead', last_error = ?, completed_at = ?, attempts = attempts + 1 WHERE id = ?`,
+		truncate(lastErr, 512), s.now(), id); err != nil {
 		return fmt.Errorf("store: mark notification %d dead: %w", id, err)
 	}
 	return nil
@@ -192,12 +193,11 @@ func (s *Store) OutboxCounts(ctx context.Context) (model.OutboxHealth, error) {
 	return h, nil
 }
 
-// PruneSentNotifications deletes delivered rows older than cutoff. Sent rows
-// are kept for a while because they are the audit trail that proves an event
-// was delivered exactly once.
+// PruneSentNotifications deletes terminal rows completed before cutoff.
+// Queueing time does not shorten the audit history of a delayed delivery.
 func (s *Store) PruneSentNotifications(ctx context.Context, cutoff time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM notifications WHERE status IN ('sent','dead') AND created_at < ?`,
+		`DELETE FROM notifications WHERE status IN ('sent','dead') AND completed_at < ?`,
 		model.FormatTime(cutoff))
 	if err != nil {
 		return 0, fmt.Errorf("store: prune notifications: %w", err)

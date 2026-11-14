@@ -372,6 +372,39 @@ func TestOutboxCounts(t *testing.T) {
 	}
 }
 
+func TestNotificationRetentionStartsAtCompletion(t *testing.T) {
+	for _, outcome := range []string{"sent", "dead", "cancelled"} {
+		t.Run(outcome, func(t *testing.T) {
+			st, cl := newTestStore(t)
+			ctx := context.Background()
+			id := outboxFixture(t, st, 1, "delayed", epoch)
+			cl.Advance(20 * 24 * time.Hour)
+			var err error
+			switch outcome {
+			case "sent":
+				err = st.MarkNotificationSent(ctx, id)
+			case "dead":
+				err = st.MarkNotificationDead(ctx, id, "failed")
+			case "cancelled":
+				_, err = st.CancelPendingNotifications(ctx, 1, "blocked")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n, err := st.PruneSentNotifications(ctx, cl.Now().Add(-14*24*time.Hour)); err != nil || n != 0 {
+				t.Fatalf("fresh terminal history pruned: %d, %v", n, err)
+			}
+			if _, err := st.GetNotification(ctx, id); err != nil {
+				t.Fatal(err)
+			}
+			cl.Advance(15 * 24 * time.Hour)
+			if n, err := st.PruneSentNotifications(ctx, cl.Now().Add(-14*24*time.Hour)); err != nil || n != 1 {
+				t.Fatalf("expired terminal history retained: %d, %v", n, err)
+			}
+		})
+	}
+}
+
 func TestPruneSentNotifications(t *testing.T) {
 	st, fake := newTestStore(t)
 	ctx := context.Background()
