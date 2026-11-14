@@ -161,9 +161,9 @@ Design choices worth stating:
 
 Two independent mechanisms stop the bot from replaying history:
 
-- **Branch baseline.** The first successful poll of a branch that has *no stored
-  snapshots* records them and queues nothing. This covers a fresh install and a
-  wiped snapshot table.
+- **Branch baseline.** The first successful poll of a previously unpolled branch
+  records its tasks and queues nothing. Baseline completion persists separately
+  from snapshots, so retention cleanup does not suppress later notifications.
 - **Per-chat activation watermark.** Ticking a branch stamps
   `chat_branches.active_watermark = now`; only records with
   `task_changed > watermark` are ever notified for that chat. Ticking a branch

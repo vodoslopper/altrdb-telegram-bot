@@ -41,9 +41,8 @@ type ApplyResult struct {
 // saying "already seen" for a task nobody was told about. The reverse is also
 // impossible, because the outbox rows carry UNIQUE (chat_id, fingerprint).
 //
-// baseline suppresses notification creation. It is used for the first pass over
-// a branch that has no stored snapshots, so a fresh install or a wiped snapshot
-// table does not blast every chat with the current contents of the feed.
+// baseline suppresses notification creation on the first successful poll of a
+// branch, so a fresh installation does not replay the feed's existing tasks.
 func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline bool, terminal model.TerminalStates) (ApplyResult, error) {
 	res := ApplyResult{Tasks: len(tasks), Baseline: baseline}
 	if len(tasks) == 0 {
@@ -148,6 +147,21 @@ func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline boo
 				res.Events = append(res.Events, event)
 			}
 			res.Duplicates += dups
+		}
+		// Baseline completion must survive snapshot retention and commit with
+		// the snapshots. Otherwise cleanup (or a crash before SavePollState)
+		// can make an established branch look like a fresh installation.
+		seenRepos := make(map[string]bool)
+		for _, t := range tasks {
+			if seenRepos[t.TaskRepo] {
+				continue
+			}
+			seenRepos[t.TaskRepo] = true
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO poll_state (branch, baselined, updated_at) VALUES (?, 1, ?)
+				ON CONFLICT (branch) DO UPDATE SET baselined = 1`, t.TaskRepo, nowStr); err != nil {
+				return fmt.Errorf("store: record baseline %s: %w", t.TaskRepo, err)
+			}
 		}
 		return nil
 	})
@@ -306,17 +320,18 @@ func observeStatesTx(ctx context.Context, tx *sql.Tx, states []string, now strin
 	return nil
 }
 
-// NeedsBaseline reports whether a branch has no stored snapshots yet. The first
-// successful poll of such a branch must not notify: everything in it is history
-// from this database's point of view.
+// NeedsBaseline reports whether a branch has never been successfully polled.
+// Snapshot presence also protects databases written before baseline tracking;
+// once recorded, baseline completion survives snapshot cleanup.
 func (s *Store) NeedsBaseline(ctx context.Context, branch string) (bool, error) {
-	var n int
+	var needed bool
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM task_snapshots WHERE task_repo = ?`, branch).Scan(&n)
+		`SELECT NOT EXISTS (SELECT 1 FROM task_snapshots WHERE task_repo = ?)
+		 AND NOT EXISTS (SELECT 1 FROM poll_state WHERE branch = ? AND baselined = 1)`, branch, branch).Scan(&needed)
 	if err != nil {
 		return false, fmt.Errorf("store: count snapshots %s: %w", branch, err)
 	}
-	return n == 0, nil
+	return needed, nil
 }
 
 // GetSnapshot reads the stored snapshot of one task.

@@ -501,6 +501,27 @@ func TestApplyTasksEmptyInput(t *testing.T) {
 	}
 }
 
+func TestBaselineSurvivesSnapshotCleanupAndReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "baseline.db")
+	st, cl := newTestStoreAt(t, path)
+	ctx := context.Background()
+	if _, err := st.ApplyTasks(ctx, []model.Task{task(1, "sisyphus", "grenka", "DONE", epoch)}, true, terminal); err != nil {
+		t.Fatal(err)
+	}
+	cl.Advance(31 * 24 * time.Hour)
+	if n, err := st.PruneSnapshots(ctx, cl.Now().Add(-30*24*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("cleanup = %d, %v", n, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, _ := newTestStoreAt(t, path)
+	needed, err := reopened.NeedsBaseline(ctx, "sisyphus")
+	if err != nil || needed {
+		t.Fatalf("established branch needs baseline after cleanup/restart: %v, %v", needed, err)
+	}
+}
+
 func TestPruneSnapshots(t *testing.T) {
 	st, cl := newTestStore(t)
 	ctx := context.Background()

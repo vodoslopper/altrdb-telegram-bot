@@ -541,6 +541,31 @@ func TestUnknownStatesAreLearned(t *testing.T) {
 	}
 }
 
+func TestCleanupDoesNotBaselineEstablishedBranchAgain(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.SnapshotKeepFor = 24 * time.Hour })
+	ctx := context.Background()
+	h.subscribe(t, 1, []string{"grenka"}, []string{"DONE"}, []string{"sisyphus"}, epoch.Add(-time.Hour))
+	h.fake.setFeed("sisyphus", taskRecord(1, "sisyphus", "grenka", "DONE", epoch))
+	if err := h.p.Cycle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.fake.setFeed("sisyphus")
+	h.clock.Advance(25 * time.Hour)
+	if err := h.p.Cycle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := h.store.CountSnapshots(ctx); err != nil || n != 0 {
+		t.Fatalf("cleanup = %d snapshots, %v", n, err)
+	}
+	h.fake.setFeed("sisyphus", taskRecord(2, "sisyphus", "grenka", "DONE", h.clock.Now()))
+	if err := h.p.Cycle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.pending(t); n != 1 {
+		t.Fatalf("new task after snapshot cleanup queued %d notifications, want 1", n)
+	}
+}
+
 func TestMaintenanceKeepsOldTasksStillInFeed(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.SnapshotKeepFor = 24 * time.Hour })
 	ctx := context.Background()

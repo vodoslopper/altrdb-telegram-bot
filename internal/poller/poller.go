@@ -129,8 +129,7 @@ func (p *Poller) Run(ctx context.Context) error {
 		"interval", p.interval.String(), "tasks_limit", p.tasksLimit,
 		"overlap_window", p.overlap.String(), "max_concurrent_branches", p.maxConcurrent)
 
-	// An immediate first pass: baseline existing branches before anything else
-	// can queue a notification.
+	// An immediate first pass: baseline branches never successfully polled.
 	if err := p.Cycle(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		p.log.Error("initial poll cycle failed", "error", err.Error())
 	}
@@ -266,8 +265,7 @@ func (p *Poller) PollBranch(ctx context.Context, branch string) error {
 		LastSuccessAt:   &now,
 		TasksSeen:       len(tasks),
 		WindowSaturated: p.windowSaturated(tasks, now),
-		// After a successful pass the branch has snapshots, so it is
-		// baselined from here on, whether this pass was the baseline or not.
+		// A successful pass establishes the baseline even for an empty feed.
 		Baselined:           true,
 		ConsecutiveFailures: 0,
 	}
