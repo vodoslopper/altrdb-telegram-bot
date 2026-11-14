@@ -75,8 +75,8 @@ func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline boo
 		upsert, err := tx.PrepareContext(ctx, `
 			INSERT INTO task_snapshots (task_repo, task_id, fingerprint, task_state, task_owner,
 			                            task_try, task_iter, task_testonly, task_stage, task_message,
-			                            task_changed, packages, first_seen_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			                            task_changed, packages, first_seen_at, updated_at, last_seen_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (task_repo, task_id) DO UPDATE SET
 				fingerprint   = excluded.fingerprint,
 				task_state    = excluded.task_state,
@@ -88,7 +88,8 @@ func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline boo
 				task_message  = excluded.task_message,
 				task_changed  = excluded.task_changed,
 				packages      = excluded.packages,
-				updated_at    = excluded.updated_at`)
+				updated_at    = excluded.updated_at,
+				last_seen_at  = excluded.last_seen_at`)
 		if err != nil {
 			return fmt.Errorf("store: prepare snapshot upsert: %w", err)
 		}
@@ -107,7 +108,7 @@ func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline boo
 			}
 			if _, err := upsert.ExecContext(ctx,
 				t.TaskRepo, t.TaskID, fp, t.State, t.Owner, t.Try, t.Iter, t.Testonly,
-				t.Stage, t.Message, model.FormatTime(t.Changed), string(pkgs), firstSeen, nowStr); err != nil {
+				t.Stage, t.Message, model.FormatTime(t.Changed), string(pkgs), firstSeen, nowStr, nowStr); err != nil {
 				return fmt.Errorf("store: upsert snapshot %s/%d: %w", t.TaskRepo, t.TaskID, err)
 			}
 
@@ -250,7 +251,7 @@ func loadSnapshotsTx(ctx context.Context, tx *sql.Tx, tasks []model.Task) (map[i
 		q := fmt.Sprintf(`
 			SELECT task_repo, task_id, fingerprint, task_state, task_owner, task_try, task_iter,
 			       task_testonly, task_stage, task_message, task_changed, packages,
-			       first_seen_at, updated_at
+			       first_seen_at, updated_at, last_seen_at
 			FROM task_snapshots WHERE task_repo = ? AND task_id IN (%s)`, placeholders(len(batch)))
 		args := make([]any, 0, len(batch)+1)
 		args = append(args, repo)
@@ -263,16 +264,17 @@ func loadSnapshotsTx(ctx context.Context, tx *sql.Tx, tasks []model.Task) (map[i
 		}
 		for rows.Next() {
 			var snap model.Snapshot
-			var changed, pkgs, first, updated string
+			var changed, pkgs, first, updated, lastSeen string
 			if err := rows.Scan(&snap.TaskRepo, &snap.TaskID, &snap.Fingerprint, &snap.State,
 				&snap.Owner, &snap.Try, &snap.Iter, &snap.Testonly, &snap.Stage, &snap.Message,
-				&changed, &pkgs, &first, &updated); err != nil {
+				&changed, &pkgs, &first, &updated, &lastSeen); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("store: scan snapshot: %w", err)
 			}
 			snap.Changed, _ = model.ParseTime(changed)
 			snap.FirstSeenAt, _ = model.ParseTime(first)
 			snap.UpdatedAt, _ = model.ParseTime(updated)
+			snap.LastSeenAt, _ = model.ParseTime(lastSeen)
 			if pkgs != "" {
 				_ = json.Unmarshal([]byte(pkgs), &snap.Packages)
 			}
@@ -320,15 +322,15 @@ func (s *Store) NeedsBaseline(ctx context.Context, branch string) (bool, error) 
 // GetSnapshot reads the stored snapshot of one task.
 func (s *Store) GetSnapshot(ctx context.Context, repo string, taskID int64) (*model.Snapshot, error) {
 	var snap model.Snapshot
-	var changed, pkgs, first, updated string
+	var changed, pkgs, first, updated, lastSeen string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT task_repo, task_id, fingerprint, task_state, task_owner, task_try, task_iter,
 		       task_testonly, task_stage, task_message, task_changed, packages,
-		       first_seen_at, updated_at
+		       first_seen_at, updated_at, last_seen_at
 		FROM task_snapshots WHERE task_repo = ? AND task_id = ?`, repo, taskID).
 		Scan(&snap.TaskRepo, &snap.TaskID, &snap.Fingerprint, &snap.State, &snap.Owner,
 			&snap.Try, &snap.Iter, &snap.Testonly, &snap.Stage, &snap.Message,
-			&changed, &pkgs, &first, &updated)
+			&changed, &pkgs, &first, &updated, &lastSeen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -338,6 +340,7 @@ func (s *Store) GetSnapshot(ctx context.Context, repo string, taskID int64) (*mo
 	snap.Changed, _ = model.ParseTime(changed)
 	snap.FirstSeenAt, _ = model.ParseTime(first)
 	snap.UpdatedAt, _ = model.ParseTime(updated)
+	snap.LastSeenAt, _ = model.ParseTime(lastSeen)
 	if pkgs != "" {
 		_ = json.Unmarshal([]byte(pkgs), &snap.Packages)
 	}
@@ -353,10 +356,10 @@ func (s *Store) CountSnapshots(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// PruneSnapshots drops tasks that have not changed since cutoff. They are long
-// gone from the capped feed, so keeping them only grows the file.
+// PruneSnapshots drops only tasks not observed in the API since cutoff.
+// An old task may remain in the capped feed indefinitely without changing.
 func (s *Store) PruneSnapshots(ctx context.Context, cutoff time.Time) (int, error) {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM task_snapshots WHERE task_changed < ?`,
+	res, err := s.db.ExecContext(ctx, `DELETE FROM task_snapshots WHERE last_seen_at < ?`,
 		model.FormatTime(cutoff))
 	if err != nil {
 		return 0, fmt.Errorf("store: prune snapshots: %w", err)

@@ -248,6 +248,7 @@ type Snapshot struct {
 	Packages    []string
 	FirstSeenAt time.Time
 	UpdatedAt   time.Time
+	LastSeenAt  time.Time
 }
 
 // TaskEvent is one notification: a task transition plus what it looked like

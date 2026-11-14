@@ -541,11 +541,11 @@ func TestUnknownStatesAreLearned(t *testing.T) {
 	}
 }
 
-func TestMaintenancePrunesOldRows(t *testing.T) {
+func TestMaintenanceKeepsOldTasksStillInFeed(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.SnapshotKeepFor = 24 * time.Hour })
 	ctx := context.Background()
 
-	h.subscribe(t, 1, []string{"grenka"}, []string{"DONE"}, []string{"sisyphus"}, epoch.Add(-time.Hour))
+	h.subscribe(t, 1, []string{"grenka"}, []string{"DONE"}, []string{"sisyphus"}, epoch.Add(-100*time.Hour))
 	old := taskRecord(1, "sisyphus", "grenka", "DONE", epoch.Add(-72*time.Hour))
 	fresh := taskRecord(2, "sisyphus", "grenka", "DONE", epoch.Add(-time.Minute))
 	h.fake.setFeed("sisyphus", old, fresh)
@@ -558,14 +558,48 @@ func TestMaintenancePrunesOldRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountSnapshots: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("snapshots = %d, want the old record pruned", n)
+	if n != 2 {
+		t.Errorf("snapshots = %d, want both observed records retained", n)
 	}
-	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 1); err == nil {
-		t.Error("the 72h old snapshot survived pruning")
+	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 1); err != nil {
+		t.Errorf("the old task still in the feed was pruned: %v", err)
 	}
 	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 2); err != nil {
 		t.Errorf("the recent snapshot was pruned: %v", err)
+	}
+	// No outbox history exists for baselined tasks, so deduplication cannot
+	// hide rediscovery. Repeated polls and cleanup must not enqueue them.
+	for range 3 {
+		h.clock.Advance(25 * time.Hour)
+		if err := h.p.Cycle(ctx); err != nil {
+			t.Fatal(err)
+		}
+		var queued int
+		if err := h.store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM notifications`).Scan(&queued); err != nil {
+			t.Fatal(err)
+		}
+		if queued != 0 {
+			t.Fatalf("unchanged old tasks generated %d notifications", queued)
+		}
+	}
+	// Once a task disappears, retain it for the full absence period.
+	h.fake.setFeed("sisyphus", fresh)
+	h.clock.Advance(23 * time.Hour)
+	if err := h.p.Cycle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 1); err != nil {
+		t.Fatalf("task pruned before retention elapsed: %v", err)
+	}
+	h.clock.Advance(2 * time.Hour)
+	if err := h.p.Cycle(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 1); err != store.ErrNotFound {
+		t.Errorf("absent task after retention: %v, want ErrNotFound", err)
+	}
+	if _, err := h.store.GetSnapshot(ctx, "sisyphus", 2); err != nil {
+		t.Errorf("task still in feed was pruned: %v", err)
 	}
 }
 

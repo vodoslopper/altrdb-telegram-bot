@@ -590,7 +590,7 @@ delivery queue; the outbox is designed for exactly one worker.
 | `outbox_pending` grows | Telegram is rejecting or rate-limiting sends. `altrdb_telegram_sends_total{result}` says which; `notifications.last_error` has the text |
 | Webhook does nothing | The public URL must reach `POST /telegram/webhook`, the header secret must match, and Telegram must have been told: `-set-webhook` |
 | Group chat gets one line and nothing else | Expected. Set `ALLOW_TELEGRAM_GROUPS=true` to support groups |
-| Database is huge | `SNAPSHOT_RETENTION` prunes old snapshots hourly; delivered rows are pruned after 14 days. `VACUUM` reclaims the space |
+| Database is huge | `SNAPSHOT_RETENTION` prunes snapshots hourly only when they have not been seen in the API for the retention period; task change time does not control retention. Delivered rows are pruned after 14 days. `VACUUM` reclaims the space |
 
 Logs are structured (`LOG_FORMAT=json` for machine parsing) and never contain
 the bot token, the webhook secret, or a full update body.

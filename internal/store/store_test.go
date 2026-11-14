@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"altrdb-telegram-bot/internal/clock"
 	"altrdb-telegram-bot/internal/model"
+	"altrdb-telegram-bot/migrations"
 
 	"io"
 	"log/slog"
@@ -39,6 +41,68 @@ func newTestStoreAt(t *testing.T, path string) (*Store, *clock.Fake) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	return st, fake
+}
+
+func TestSnapshotLastSeenMigrationPreservesData(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "upgrade.db"), Options{Clock: clock.NewFake(epoch)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	all, err := migrations.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Build the previous schema, with existing subscriptions and history.
+	for _, m := range all {
+		if m.Version >= 3 {
+			break
+		}
+		if _, err := st.DB().ExecContext(ctx, m.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.DB().ExecContext(ctx, `INSERT INTO schema_migrations VALUES (?, ?, ?)`, m.Version, m.Name, model.FormatTime(epoch)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	subscribe(t, st, 1, []string{"grenka"}, []string{"DONE"}, []string{"sisyphus"}, epoch.Add(-time.Hour))
+	before, err := st.LoadSubscription(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO task_snapshots
+		(task_repo, task_id, fingerprint, task_state, task_owner, task_changed, first_seen_at, updated_at)
+		VALUES ('sisyphus', 1, 'fp', 'DONE', 'grenka', ?, ?, ?)`,
+		model.FormatTime(epoch.Add(-90*24*time.Hour)), model.FormatTime(epoch.Add(-time.Hour)), model.FormatTime(epoch)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, `INSERT INTO notifications
+		(chat_id, fingerprint, task_repo, task_id, payload, status, next_attempt_at, created_at)
+		VALUES (1, 'fp', 'sisyphus', 1, '{"task_id":1}', 'sent', ?, ?)`, model.FormatTime(epoch), model.FormatTime(epoch)); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := st.GetSnapshot(ctx, "sisyphus", 1)
+	if err != nil || !snap.LastSeenAt.Equal(epoch) {
+		t.Fatalf("last-seen backfill: snapshot=%+v error=%v", snap, err)
+	}
+	if n, err := st.PruneSnapshots(ctx, epoch.Add(-30*24*time.Hour)); err != nil || n != 0 {
+		t.Fatalf("recently observed migrated snapshot pruned: %d, %v", n, err)
+	}
+	after, err := st.LoadSubscription(ctx, 1)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("migration changed subscription: before=%+v after=%+v error=%v", before, after, err)
+	}
+	var payload, status string
+	if err := st.DB().QueryRowContext(ctx, `SELECT payload, status FROM notifications WHERE chat_id = 1 AND fingerprint = 'fp'`).Scan(&payload, &status); err != nil {
+		t.Fatal(err)
+	}
+	if payload != `{"task_id":1}` || status != "sent" {
+		t.Fatalf("notification history changed: %s, %s", payload, status)
+	}
 }
 
 func TestMigrateFromEmptyDatabase(t *testing.T) {

@@ -502,7 +502,7 @@ func TestApplyTasksEmptyInput(t *testing.T) {
 }
 
 func TestPruneSnapshots(t *testing.T) {
-	st, _ := newTestStore(t)
+	st, cl := newTestStore(t)
 	ctx := context.Background()
 
 	feed := []model.Task{
@@ -512,7 +512,12 @@ func TestPruneSnapshots(t *testing.T) {
 	if _, err := st.ApplyTasks(ctx, feed, true, terminal); err != nil {
 		t.Fatalf("ApplyTasks: %v", err)
 	}
-	n, err := st.PruneSnapshots(ctx, epoch.Add(-30*24*time.Hour))
+	cl.Advance(40 * 24 * time.Hour)
+	// Only task 2 remains in the API, unchanged. Its observation time moves.
+	if _, err := st.ApplyTasks(ctx, feed[1:], false, terminal); err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.PruneSnapshots(ctx, cl.Now().Add(-30*24*time.Hour))
 	if err != nil {
 		t.Fatalf("PruneSnapshots: %v", err)
 	}
@@ -524,6 +529,13 @@ func TestPruneSnapshots(t *testing.T) {
 	}
 	if _, err := st.GetSnapshot(ctx, "sisyphus", 1); err != ErrNotFound {
 		t.Errorf("the old snapshot = %v, want ErrNotFound", err)
+	}
+	snap, err := st.GetSnapshot(ctx, "sisyphus", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.LastSeenAt.Equal(cl.Now()) || !snap.FirstSeenAt.Equal(epoch) || !snap.Changed.Equal(feed[1].Changed) {
+		t.Errorf("observation time must advance without changing task times: %+v", snap)
 	}
 }
 
