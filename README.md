@@ -145,9 +145,10 @@ Design choices worth stating:
    "terminal only" mode are filtered to `TERMINAL_STATES`.
 4. **One transaction.** Snapshot writes and outbox inserts commit together. A
    crash cannot record "already seen" for a task nobody was told about.
-5. **`UNIQUE (chat_id, fingerprint)`** is the final deduplication guard. It is
-   a database constraint, not an in-memory map, so repeated polls, overlapping
-   windows and restarts are all covered by the same rule.
+5. **Persistent per-chat fingerprints** are the final deduplication guard.
+   Database triggers record each `(chat_id, fingerprint)` with its outbox row
+   and reject repeats, even after payload history expires. The compact ledger
+   remains until its chat is deleted; outbox rows also retain their unique key.
 6. **Delivery.** A worker claims due rows (`pending` → `sending` inside one
    `BEGIN IMMEDIATE` transaction), sends them, and marks them `sent`. Transient
    failures cost one attempt and are rescheduled with exponential backoff plus
@@ -196,7 +197,10 @@ implementation:
    `poll_window_saturated{branch}=1`, exposes `window_warning` on `/healthz`,
    and logs a warning naming the knob to turn. Watch that metric.
 4. **Deleted tasks disappear** from the feed and are never reported as such;
-   their snapshots are simply pruned after `SNAPSHOT_RETENTION`.
+   their snapshots are pruned after `SNAPSHOT_RETENTION` without being seen.
+   Compact per-chat event fingerprints persist after snapshot and notification
+   history cleanup, preventing repeat notifications if an unchanged task returns.
+   An upgrade can retain fingerprints only for history still in the database.
 5. **The overlap window cannot recover from a long outage.** After downtime
    longer than the window's reach, whatever happened in between is gone. The
    bot baselines forward instead of inventing history.
@@ -361,7 +365,7 @@ per run.
 | `HTTP_CONNECT_TIMEOUT` | `10s` | TCP connect timeout |
 | `HTTP_TLS_TIMEOUT` | `10s` | TLS handshake timeout |
 | `DATABASE_PATH` | `/var/lib/altrdb-telegram-bot/bot.db` | SQLite file; the directory is created |
-| `SNAPSHOT_RETENTION` | `720h` | Snapshots with an older `task_changed` are pruned |
+| `SNAPSHOT_RETENTION` | `720h` | Snapshots not seen in the API for this period are pruned |
 | `RECENT_TASK_MAX_AGE` | `720h` | Oldest `task_changed` age included by `/recent` |
 | `LEASE_TTL` | `90s` | How long a lease stays valid without a heartbeat |
 | `LEASE_HEARTBEAT` | `30s` | Heartbeat interval; must be shorter than the TTL |

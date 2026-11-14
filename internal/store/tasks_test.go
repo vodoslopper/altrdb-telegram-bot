@@ -501,6 +501,55 @@ func TestApplyTasksEmptyInput(t *testing.T) {
 	}
 }
 
+func TestReturningTaskDoesNotNotifyAfterHistoryCleanupAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dedup.db")
+	st, cl := newTestStoreAt(t, path)
+	ctx := context.Background()
+	subscribe(t, st, 1, []string{"grenka"}, []string{"DONE"}, []string{"sisyphus"}, epoch.Add(-time.Hour))
+	old := task(1, "sisyphus", "grenka", "DONE", epoch)
+	r, err := st.ApplyTasks(ctx, []model.Task{old}, false, terminal)
+	if err != nil || r.Notifications != 1 {
+		t.Fatalf("initial notification: %+v, %v", r, err)
+	}
+	var id int64
+	if err := st.DB().QueryRowContext(ctx, `SELECT id FROM notifications`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkNotificationSent(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	cl.Advance(31 * 24 * time.Hour)
+	if n, err := st.PruneSnapshots(ctx, cl.Now().Add(-30*24*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("snapshot cleanup: %d, %v", n, err)
+	}
+	if n, err := st.PruneSentNotifications(ctx, cl.Now().Add(-14*24*time.Hour)); err != nil || n != 1 {
+		t.Fatalf("history cleanup: %d, %v", n, err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, clock := newTestStoreAt(t, path)
+	clock.Advance(31 * 24 * time.Hour)
+	baseline, err := reopened.NeedsBaseline(ctx, "sisyphus")
+	if err != nil || baseline {
+		t.Fatalf("unexpected new baseline: %v, %v", baseline, err)
+	}
+	r, err = reopened.ApplyTasks(ctx, []model.Task{old}, baseline, terminal)
+	if err != nil || r.Changed != 1 || r.Notifications != 0 || r.Duplicates != 1 {
+		t.Fatalf("returning unchanged task: %+v, %v", r, err)
+	}
+	if n := pendingCount(t, reopened, 1); n != 0 {
+		t.Fatalf("returning task queued %d duplicate notifications", n)
+	}
+	// A genuine later change must still notify the existing subscriber.
+	old.Try++
+	old.Changed = clock.Now()
+	r, err = reopened.ApplyTasks(ctx, []model.Task{old}, false, terminal)
+	if err != nil || r.Notifications != 1 {
+		t.Fatalf("new event suppressed: %+v, %v", r, err)
+	}
+}
+
 func TestBaselineSurvivesSnapshotCleanupAndReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "baseline.db")
 	st, cl := newTestStoreAt(t, path)

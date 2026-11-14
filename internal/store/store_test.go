@@ -43,6 +43,78 @@ func newTestStoreAt(t *testing.T, path string) (*Store, *clock.Fake) {
 	return st, fake
 }
 
+func TestPersistentFingerprintMigrationPreservesHistory(t *testing.T) {
+	ctx := context.Background()
+	cl := clock.NewFake(epoch)
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "fingerprints.db"), Options{Clock: cl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	all, err := migrations.All()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.Version >= 5 {
+			break
+		}
+		if _, err := st.DB().ExecContext(ctx, m.SQL); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.DB().ExecContext(ctx, `INSERT INTO schema_migrations VALUES (?, ?, ?)`, m.Version, m.Name, model.FormatTime(epoch)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sent := outboxFixture(t, st, 1, "sent", epoch)
+	dead := outboxFixture(t, st, 1, "dead", epoch)
+	pending := outboxFixture(t, st, 1, "pending", epoch)
+	if err := st.MarkNotificationSent(ctx, sent); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkNotificationDead(ctx, dead, "failure"); err != nil {
+		t.Fatal(err)
+	}
+	before := make(map[int64]*model.Notification)
+	for _, id := range []int64{sent, dead, pending} {
+		before[id], err = st.GetNotification(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range before {
+		got, err := st.GetNotification(ctx, id)
+		if err != nil || !reflect.DeepEqual(want, got) {
+			t.Fatalf("migration changed history: want=%+v got=%+v error=%v", want, got, err)
+		}
+	}
+	cl.Advance(20 * 24 * time.Hour)
+	if n, err := st.PruneSentNotifications(ctx, cl.Now().Add(-14*24*time.Hour)); err != nil || n != 2 {
+		t.Fatalf("terminal history cleanup: %d, %v", n, err)
+	}
+	for _, n := range before {
+		if err := st.EnqueueTestNotification(ctx, 1, n.Event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := pendingCount(t, st, 1); n != 1 {
+		t.Fatalf("historical events requeued after migration and cleanup: %d rows", n)
+	}
+	// Event identity belongs to a chat; another chat can receive the same event.
+	if _, err := st.RegisterChat(ctx, 2, "private", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnqueueTestNotification(ctx, 2, before[sent].Event); err != nil {
+		t.Fatal(err)
+	}
+	if n := pendingCount(t, st, 2); n != 1 {
+		t.Fatalf("another chat's notification suppressed: %d", n)
+	}
+}
+
 func TestSnapshotLastSeenMigrationPreservesData(t *testing.T) {
 	ctx := context.Background()
 	st, err := Open(ctx, filepath.Join(t.TempDir(), "upgrade.db"), Options{Clock: clock.NewFake(epoch)})
