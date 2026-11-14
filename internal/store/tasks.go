@@ -96,7 +96,7 @@ func (s *Store) ApplyTasks(ctx context.Context, tasks []model.Task, baseline boo
 
 		for _, t := range tasks {
 			fp := model.Fingerprint(t)
-			prev, seen := existing[t.TaskID]
+			prev, seen := existing[snapshotKey{t.TaskRepo, t.TaskID}]
 			pkgs, err := json.Marshal(t.Packages)
 			if err != nil {
 				pkgs = []byte("[]")
@@ -247,57 +247,63 @@ func fanOutTx(ctx context.Context, tx *sql.Tx, t model.Task, event model.TaskEve
 	return inserted, duplicates, nil
 }
 
-func loadSnapshotsTx(ctx context.Context, tx *sql.Tx, tasks []model.Task) (map[int64]model.Snapshot, error) {
-	repo := tasks[0].TaskRepo
-	ids := make([]int64, 0, len(tasks))
-	for _, t := range tasks {
-		ids = append(ids, t.TaskID)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+type snapshotKey struct {
+	repo string
+	id   int64
+}
 
-	out := make(map[int64]model.Snapshot, len(ids))
-	// Chunk the IN list; SQLite's default variable limit is 999 in older
-	// builds and the feed can carry a few hundred tasks.
-	const chunk = 400
-	for start := 0; start < len(ids); start += chunk {
-		end := min(start+chunk, len(ids))
-		batch := ids[start:end]
-		q := fmt.Sprintf(`
+func loadSnapshotsTx(ctx context.Context, tx *sql.Tx, tasks []model.Task) (map[snapshotKey]model.Snapshot, error) {
+	byRepo := make(map[string][]int64)
+	for _, t := range tasks {
+		byRepo[t.TaskRepo] = append(byRepo[t.TaskRepo], t.TaskID)
+	}
+	out := make(map[snapshotKey]model.Snapshot, len(tasks))
+	for repo, ids := range byRepo {
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+		// Chunk the IN list; SQLite's default variable limit is 999 in older
+		// builds and the feed can carry a few hundred tasks.
+		const chunk = 400
+		for start := 0; start < len(ids); start += chunk {
+			end := min(start+chunk, len(ids))
+			batch := ids[start:end]
+			q := fmt.Sprintf(`
 			SELECT task_repo, task_id, fingerprint, task_state, task_owner, task_try, task_iter,
 			       task_testonly, task_stage, task_message, task_changed, packages,
 			       first_seen_at, updated_at, last_seen_at
 			FROM task_snapshots WHERE task_repo = ? AND task_id IN (%s)`, placeholders(len(batch)))
-		args := make([]any, 0, len(batch)+1)
-		args = append(args, repo)
-		for _, id := range batch {
-			args = append(args, id)
-		}
-		rows, err := tx.QueryContext(ctx, q, args...)
-		if err != nil {
-			return nil, fmt.Errorf("store: load snapshots: %w", err)
-		}
-		for rows.Next() {
-			var snap model.Snapshot
-			var changed, pkgs, first, updated, lastSeen string
-			if err := rows.Scan(&snap.TaskRepo, &snap.TaskID, &snap.Fingerprint, &snap.State,
-				&snap.Owner, &snap.Try, &snap.Iter, &snap.Testonly, &snap.Stage, &snap.Message,
-				&changed, &pkgs, &first, &updated, &lastSeen); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("store: scan snapshot: %w", err)
+			args := make([]any, 0, len(batch)+1)
+			args = append(args, repo)
+			for _, id := range batch {
+				args = append(args, id)
 			}
-			snap.Changed, _ = model.ParseTime(changed)
-			snap.FirstSeenAt, _ = model.ParseTime(first)
-			snap.UpdatedAt, _ = model.ParseTime(updated)
-			snap.LastSeenAt, _ = model.ParseTime(lastSeen)
-			if pkgs != "" {
-				_ = json.Unmarshal([]byte(pkgs), &snap.Packages)
+			rows, err := tx.QueryContext(ctx, q, args...)
+			if err != nil {
+				return nil, fmt.Errorf("store: load snapshots: %w", err)
 			}
-			out[snap.TaskID] = snap
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return nil, fmt.Errorf("store: load snapshots: %w", err)
+			for rows.Next() {
+				var snap model.Snapshot
+				var changed, pkgs, first, updated, lastSeen string
+				if err := rows.Scan(&snap.TaskRepo, &snap.TaskID, &snap.Fingerprint, &snap.State,
+					&snap.Owner, &snap.Try, &snap.Iter, &snap.Testonly, &snap.Stage, &snap.Message,
+					&changed, &pkgs, &first, &updated, &lastSeen); err != nil {
+					rows.Close()
+					return nil, fmt.Errorf("store: scan snapshot: %w", err)
+				}
+				snap.Changed, _ = model.ParseTime(changed)
+				snap.FirstSeenAt, _ = model.ParseTime(first)
+				snap.UpdatedAt, _ = model.ParseTime(updated)
+				snap.LastSeenAt, _ = model.ParseTime(lastSeen)
+				if pkgs != "" {
+					_ = json.Unmarshal([]byte(pkgs), &snap.Packages)
+				}
+				out[snapshotKey{snap.TaskRepo, snap.TaskID}] = snap
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return nil, fmt.Errorf("store: load snapshots: %w", err)
+			}
 		}
 	}
 	return out, nil

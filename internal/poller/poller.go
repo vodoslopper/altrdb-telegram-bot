@@ -264,7 +264,7 @@ func (p *Poller) PollBranch(ctx context.Context, branch string) error {
 		LastAttemptAt:   &now,
 		LastSuccessAt:   &now,
 		TasksSeen:       len(tasks),
-		WindowSaturated: p.windowSaturated(tasks, now),
+		WindowSaturated: p.windowSaturated(tasks, len(resp.Tasks), now),
 		// A successful pass establishes the baseline even for an empty feed.
 		Baselined:           true,
 		ConsecutiveFailures: 0,
@@ -313,7 +313,6 @@ func (p *Poller) PollBranch(ctx context.Context, branch string) error {
 			"oldest_task_changed", st.OldestTaskChanged,
 			"hint", "raise RDB_TASKS_LIMIT")
 	}
-	_ = resp // request_args is diagnostic only; length is covered by len(tasks)
 	return nil
 }
 
@@ -412,14 +411,14 @@ func (p *Poller) Maintenance(ctx context.Context) error {
 // back over the overlap period. When true, a task that changed more than
 // tasks_limit records ago may have been skipped entirely: the feed is a capped
 // current-state view, not a log.
-func (p *Poller) windowSaturated(tasks []model.Task, now time.Time) bool {
-	if len(tasks) < p.tasksLimit {
+func (p *Poller) windowSaturated(tasks []model.Task, rawCount int, now time.Time) bool {
+	if rawCount < p.tasksLimit {
 		return false
 	}
 	oldest, ok := rdb.OldestChanged(tasks)
 	if !ok {
-		return false
-	}
+		return true
+	} // A full malformed window cannot prove overlap coverage.
 	return now.Sub(oldest) < p.overlap
 }
 
