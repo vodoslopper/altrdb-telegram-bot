@@ -327,7 +327,7 @@ func (bt *Bot) cmdRecent(ctx context.Context, a access, args string) error {
 	if err != nil {
 		return err
 	}
-	bt.send(ctx, a.chatID, renderRecent(events, sub, limit), nil)
+	bt.send(ctx, a.chatID, renderRecent(events, sub, limit, bt.clock.Now()), nil)
 	return nil
 }
 
@@ -437,7 +437,7 @@ func (bt *Bot) cmdTask(ctx context.Context, a access, args string) error {
 		Try: task.Try, Iter: task.Iter, Testonly: task.Testonly, Stage: task.Stage,
 		Message: task.Message, Changed: task.Changed, Packages: task.Packages,
 	}
-	bt.send(ctx, a.chatID, renderTaskDetail(ev, rdb.ApprovalSummary(info.Approval, 8), len(info.Subtasks)), nil)
+	bt.send(ctx, a.chatID, renderTaskDetail(ev, rdb.ApprovalSummary(info.Approval, 8), len(info.Subtasks), bt.clock.Now()), nil)
 	return nil
 }
 

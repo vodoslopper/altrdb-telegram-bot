@@ -130,7 +130,7 @@ func renderOnboarding(chat *model.Chat, sub *model.Subscription, botUsername str
 
 // renderRecent lists the currently matching tasks from the local snapshot
 // table. It never touches the watermark and never queues anything.
-func renderRecent(events []model.TaskEvent, sub *model.Subscription, limit int) string {
+func renderRecent(events []model.TaskEvent, sub *model.Subscription, limit int, now time.Time) string {
 	if !sub.Complete() {
 		return "Nothing to show yet: /recent lists tasks matching your maintainers, states and branches.\n" +
 			"Configure them first with /maintainers, /states and /branches."
@@ -151,7 +151,7 @@ func renderRecent(events []model.TaskEvent, sub *model.Subscription, limit int) 
 		if pkgs := strings.Join(ev.Packages, ", "); pkgs != "" {
 			fmt.Fprintf(&b, "   📦 <b>%s</b>\n", notifier.EscapeHTML(notifier.TruncateRunes(pkgs, 160)))
 		}
-		fmt.Fprintf(&b, "   changed %s\n", notifier.EscapeHTML(formatWhen(ev.Changed)))
+		fmt.Fprintf(&b, "   changed %s\n", notifier.EscapeHTML(formatWhen(ev.Changed, now)))
 	}
 	b.WriteString("\nRead-only view: it does not change what you will be notified about.")
 	return b.String()
@@ -189,7 +189,7 @@ func renderMaintainerResult(added, duplicates, invalid, unknown []string) string
 
 // renderTaskDetail shows one task fetched on demand from the task_info
 // endpoint. It is a diagnostic view, not part of the notification path.
-func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int) string {
+func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<b>Task #%d</b> · %s\n\n", ev.TaskID, notifier.EscapeHTML(ev.State))
 	if len(ev.Packages) > 0 {
@@ -201,7 +201,7 @@ func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int) stri
 	if ev.Stage != "" {
 		fmt.Fprintf(&b, "Stage: <code>%s</code>\n", notifier.EscapeHTML(ev.Stage))
 	}
-	fmt.Fprintf(&b, "Changed: %s\n", notifier.EscapeHTML(formatWhen(ev.Changed)))
+	fmt.Fprintf(&b, "Changed: %s\n", notifier.EscapeHTML(formatWhen(ev.Changed, now)))
 	fmt.Fprintf(&b, "Subtasks: %d\n", subtasks)
 	if len(approvals) > 0 {
 		fmt.Fprintf(&b, "Approvals: %s\n", notifier.EscapeHTML(strings.Join(approvals, ", ")))
@@ -214,13 +214,15 @@ func renderTaskDetail(ev model.TaskEvent, approvals []string, subtasks int) stri
 }
 
 // formatWhen renders a timestamp for humans, with a relative hint.
-func formatWhen(t time.Time) string {
+func formatWhen(t, now time.Time) string {
 	if t.IsZero() {
 		return "unknown"
 	}
 	t = t.UTC()
 	out := t.Format("2006-01-02 15:04 UTC")
-	switch d := time.Since(t); {
+	switch d := now.Sub(t); {
+	case d < 0:
+	// Future timestamps get no misleading past-tense hint.
 	case d < time.Minute:
 		out += " (just now)"
 	case d < time.Hour:
