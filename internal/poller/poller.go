@@ -287,7 +287,7 @@ func (p *Poller) PollBranch(ctx context.Context, branch string) error {
 			sat = 1
 		}
 		p.metrics.WindowSaturated.WithLabelValues(branch).Set(sat)
-		p.metrics.EventsCreated.Add(float64(result.Changed))
+		p.metrics.EventsCreated.Add(float64(len(result.Events)))
 		p.metrics.NotificationsQueued.Add(float64(result.Notifications))
 		p.metrics.DuplicateEvents.Add(float64(result.Duplicates))
 		p.metrics.RecordsSkipped.Add(float64(skipped))

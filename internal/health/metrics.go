@@ -86,7 +86,7 @@ func NewMetrics(version, commit string) *Metrics {
 		EventsCreated: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "altrdb",
 			Name:      "events_created_total",
-			Help:      "Task transitions detected by the poller.",
+			Help:      "Task events newly queued for at least one subscriber, excluding baselines and deduplicated replays.",
 		}),
 
 		DuplicateEvents: prometheus.NewCounter(prometheus.CounterOpts{
