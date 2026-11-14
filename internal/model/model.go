@@ -207,8 +207,8 @@ type Task struct {
 // something meaningful moved.
 //
 // The field list is part of the on-disk contract: changing it makes every
-// stored snapshot look "changed" once, so bump migrations.MetaFingerprintVersion
-// when you do.
+// stored snapshot look "changed" once. Plan a migration for existing snapshots
+// and notification fingerprints before changing it.
 func Fingerprint(t Task) string {
 	parts := []string{
 		strconv.FormatInt(t.TaskID, 10),

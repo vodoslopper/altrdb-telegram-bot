@@ -96,7 +96,7 @@ follow changes into a state you selected, in a branch you selected.
 
 <b>Notes</b>
 • Ticking a branch starts from now: tasks already in the feed are not replayed.
-• Each event is delivered at most once, even across restarts.
+• Events are deduplicated and retried across restarts; interrupted deliveries may repeat.
 • The feed is polled, not streamed, so a transition that happens and reverses
   inside one polling interval may never be observable.
 

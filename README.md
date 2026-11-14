@@ -6,8 +6,9 @@ picked — configured entirely from inside Telegram, with checkbox-style inline
 keyboards.
 
 It polls the public [ALT RDB (ALTRepo) API](https://rdb.altlinux.org/api/docs),
-detects real transitions, and delivers each one **exactly once**, even across
-crashes and restarts.
+detects real transitions, and queues matching events durably with persistent
+deduplication. Delivery retries survive restarts. A crash after Telegram accepts
+a message but before its acknowledgement is saved can cause a repeat delivery.
 
 ```
 ✅ Task #433219: BUILDING → DONE
@@ -135,7 +136,7 @@ Design choices worth stating:
    `task_id | task_repo | task_owner | task_try | task_iter | task_state |
    task_stage | task_changed`. Presentation-only fields (message text, package
    list, testonly flag) are deliberately *excluded*, so cosmetic churn does not
-   produce notifications.
+   produce notifications. Timestamps in the fingerprint have second precision.
 2. **Snapshot compare.** The newest snapshot per `(task_repo, task_id)` is
    stored. A differing fingerprint — including "no snapshot at all" — is a
    candidate event.
@@ -153,8 +154,10 @@ Design choices worth stating:
    `BEGIN IMMEDIATE` transaction), sends them, and marks them `sent`. Transient
    failures cost one attempt and are rescheduled with exponential backoff plus
    jitter; Telegram `429 retry_after` reschedules *without* consuming the retry
-   budget; `403`/`400`/`401` are permanent — the row goes `dead`, the chat is
-   disabled with the reason recorded, and its queued rows are cancelled.
+   budget and pauses the drain for the requested period. Unreachable chats
+   (`403`, or `400 chat not found`) are disabled and their queued rows cancelled.
+   Other `400` payload errors mark only the rejected row dead. A `401` token
+   fault stops the worker without disabling chats or discarding queued events.
    Rows left in `sending` by a crash are recovered to `pending` at start-up and
    charged one attempt, so a poison message cannot loop forever.
 
@@ -553,10 +556,14 @@ systemctl start altrdb-telegram-bot
 curl -s 127.0.0.1:8080/healthz | grep schema_version
 ```
 
-Migrations only ever add. If a future release changes the fingerprint
-definition, every stored snapshot will look "changed" once; the release notes
-must say so, and the watermarks still prevent a history blast for chats that
-subscribed earlier than those records.
+Migrations are versioned and applied once. Fingerprint changes need a migration
+plan for stored snapshots and deduplication identities; otherwise previously
+observed tasks can appear new and notify existing subscribers again.
+
+Telegram updates have durable receipts keyed by individual update ID. Concurrent
+handlers may start out of order without discarding an unseen lower ID. Receipts
+remain in the database across restarts; migration preserves the legacy replay
+boundary from installations that previously kept only the highest update ID.
 
 ## Single-instance protection
 
